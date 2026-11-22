@@ -6,7 +6,6 @@ import LoginPage from "./pages/LoginPage";
 import SignupPage from "./pages/SignupPage";
 import InvitePage from "./pages/InvitePage";
 import SetupPage from "./pages/SetupPage";
-import AreaPlaceholder from "./pages/AreaPlaceholder";
 import FamilyMembersPage from "./pages/FamilyMembersPage";
 import CareTasksPage from "./pages/CareTasksPage";
 import ParentProfilePage from "./pages/ParentProfilePage";
@@ -24,6 +23,10 @@ import CaregiverProfilePage from "./pages/caregiver/CaregiverProfilePage";
 import NotificationsPage from "./pages/NotificationsPage";
 import HandoverPage from "./pages/HandoverPage";
 import ReminderSettingsPage from "./pages/ReminderSettingsPage";
+import ElderHomePage from "./pages/elder/ElderHomePage";
+import ElderCheckinPage from "./pages/elder/ElderCheckinPage";
+import ElderEmergencyPage from "./pages/elder/ElderEmergencyPage";
+import ElderMedicinePage from "./pages/elder/ElderMedicinePage";
 import RequireAuth from "./routes/RequireAuth";
 
 export default function App() {
@@ -69,15 +72,10 @@ export default function App() {
       </Route>
 
       <Route element={<RequireAuth roles={["elder"]} />}>
-        <Route
-          path="/app/elder"
-          element={
-            <AreaPlaceholder
-              title="Elder area"
-              description="A simple, large-text space for the elder's day, reminders and calls."
-            />
-          }
-        />
+        <Route path="/app/elder" element={<ElderHomePage />} />
+        <Route path="/app/elder/checkin" element={<ElderCheckinPage />} />
+        <Route path="/app/elder/emergency" element={<ElderEmergencyPage />} />
+        <Route path="/app/elder/medicines" element={<ElderMedicinePage />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

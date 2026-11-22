@@ -13,11 +13,14 @@ import type {
   CaregiverShift,
   DocumentRecord,
   DocumentType,
+  ElderPreferences,
   ElderProfile,
+  EmergencyRequest,
   Family,
   FamilyMember,
   HandoverSummary,
   Invitation,
+  LanguageCode,
   Medication,
   MedicationEvent,
   Notification,
@@ -28,6 +31,8 @@ import type {
   ReminderRule,
   Role,
   VerificationStatus,
+  WellnessCheckin,
+  WellnessStatus,
 } from "./types";
 
 // DEMO MODE ONLY. Passwords in this store are kept in plain text in this browser's
@@ -37,7 +42,7 @@ import type {
 // Medication, appointment and document data is also stored unencrypted in this browser's
 // localStorage in demo mode. Do not enter real health information into demo mode.
 
-export const DEMO_STORE_VERSION = 6;
+export const DEMO_STORE_VERSION = 7;
 const STORAGE_KEY = "nanus-demo-v1";
 const MIN_PASSWORD_LENGTH = 6;
 const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -73,6 +78,9 @@ interface DemoStore {
   notification_preferences: NotificationPreference[];
   reminder_rules: ReminderRule[];
   care_handovers: CareHandover[];
+  wellness_checkins: WellnessCheckin[];
+  emergency_requests: EmergencyRequest[];
+  elder_preferences: ElderPreferences[];
   session_user_id: string | null;
 }
 
@@ -108,6 +116,9 @@ function emptyStore(): DemoStore {
     notification_preferences: [],
     reminder_rules: [],
     care_handovers: [],
+    wellness_checkins: [],
+    emergency_requests: [],
+    elder_preferences: [],
     session_user_id: null,
   };
 }
@@ -119,7 +130,7 @@ function readStore(): DemoStore {
   try {
     const parsed = JSON.parse(raw) as Partial<DemoStore>;
     // Version 1 data is migrated in place (new arrays default to []). Any other version is unknown, so start clean.
-    if (![1, 2, 3, 4, 5, DEMO_STORE_VERSION].includes(parsed.version ?? -1)) return emptyStore();
+    if (![1, 2, 3, 4, 5, 6, DEMO_STORE_VERSION].includes(parsed.version ?? -1)) return emptyStore();
     return {
       version: DEMO_STORE_VERSION,
       users: parsed.users ?? [],
@@ -140,6 +151,9 @@ function readStore(): DemoStore {
       notification_preferences: parsed.notification_preferences ?? [],
       reminder_rules: parsed.reminder_rules ?? [],
       care_handovers: parsed.care_handovers ?? [],
+      wellness_checkins: parsed.wellness_checkins ?? [],
+      emergency_requests: parsed.emergency_requests ?? [],
+      elder_preferences: parsed.elder_preferences ?? [],
       session_user_id: parsed.session_user_id ?? null,
     };
   } catch {
@@ -1891,5 +1905,241 @@ export function listHandovers(familyId: string): CareHandover[] {
     .sort((a, b) => b.created_at.localeCompare(a.created_at));
 }
 
+
+// ---- Phase 6: wellness check-ins, emergency requests, elder language ----
+// Demo mode only. Emergency requests here are recorded in the app only; they do not contact anyone outside the app. Nanu's AI never treats a missed check-in as a medical emergency.
+
+const WELLNESS_STATUSES: WellnessStatus[] = ["ok", "need_assistance", "contact_family"];
+const LANGUAGE_CODES: LanguageCode[] = ["en", "hi"];
+const ELDER_ONLY_MESSAGE = "Only the elder can submit their own check-in.";
+const EMERGENCY_RECIPIENT_ROLES: Role[] = ["owner", "family_member"];
+
+/** True when this user holds the elder role in this family. */
+function isElderMember(store: DemoStore, familyId: string, userId: string): boolean {
+  return store.family_members.some(
+    (m) => m.family_id === familyId && m.user_id === userId && m.role === "elder",
+  );
+}
+
+export function submitWellnessCheckin({
+  familyId,
+  elderId,
+  submittedBy,
+  status,
+  notes = null,
+}: {
+  familyId: string;
+  elderId: string;
+  submittedBy: string;
+  status: WellnessStatus;
+  notes?: string | null;
+}): WellnessCheckin {
+  if (!WELLNESS_STATUSES.includes(status)) {
+    throw new Error("Choose how you are feeling.");
+  }
+  const store = readStore();
+  if (!isElderMember(store, familyId, submittedBy)) {
+    throw new Error(ELDER_ONLY_MESSAGE);
+  }
+
+  const checkin: WellnessCheckin = {
+    id: crypto.randomUUID(),
+    family_id: familyId,
+    elder_id: elderId,
+    submitted_by: submittedBy,
+    status,
+    notes: textOrNull(notes),
+    created_at: new Date().toISOString(),
+  };
+  store.wellness_checkins.push(checkin);
+  writeStore(store);
+
+  addActivity({
+    familyId,
+    actorId: submittedBy,
+    action: "wellness.checkin",
+    entityType: "wellness_checkin",
+    entityId: checkin.id,
+    message: `Submitted a wellness check-in (${status}).`,
+  });
+  return checkin;
+}
+
+/** Newest first. */
+export function listWellnessCheckins(familyId: string): WellnessCheckin[] {
+  const store = readStore();
+  // Reverse first so equal timestamps keep newest-inserted first (stable sort).
+  return store.wellness_checkins
+    .filter((c) => c.family_id === familyId)
+    .reverse()
+    .sort((a, b) => b.created_at.localeCompare(a.created_at));
+}
+
+/**
+ * Opens an emergency request raised by the elder. Owners and family members are notified in the app.
+ * Nothing is sent outside the app and no emergency service is contacted.
+ */
+export function requestEmergency({
+  familyId,
+  elderId,
+  requestedBy,
+  message = null,
+}: {
+  familyId: string;
+  elderId: string;
+  requestedBy: string;
+  message?: string | null;
+}): EmergencyRequest {
+  const store = readStore();
+  if (!isElderMember(store, familyId, requestedBy)) {
+    throw new Error(ELDER_ONLY_MESSAGE);
+  }
+
+  const cleanMessage = textOrNull(message);
+  const request: EmergencyRequest = {
+    id: crypto.randomUUID(),
+    family_id: familyId,
+    elder_id: elderId,
+    requested_by: requestedBy,
+    message: cleanMessage,
+    status: "open",
+    acknowledged_by: null,
+    acknowledged_at: null,
+    resolved_at: null,
+    created_at: new Date().toISOString(),
+  };
+  store.emergency_requests.push(request);
+  writeStore(store);
+
+  const elder =
+    store.elder_profiles.find((e) => e.id === elderId) ??
+    store.elder_profiles.find((e) => e.family_id === familyId);
+  const elderName = elder?.display_name ?? "the elder";
+  const body =
+    "Open Nanu's AI and check the request. The app does not contact emergency services." +
+    (cleanMessage ? ` ${cleanMessage}` : "");
+
+  const recipients = store.family_members.filter(
+    (m) => m.family_id === familyId && EMERGENCY_RECIPIENT_ROLES.includes(m.role),
+  );
+  for (const recipient of recipients) {
+    createNotification({
+      familyId,
+      userId: recipient.user_id,
+      eventType: "emergency_request",
+      title: `Emergency request from ${elderName}`,
+      message: body,
+      dedupeKey: `emergency:${request.id}:${recipient.user_id}`,
+    });
+  }
+
+  addActivity({
+    familyId,
+    actorId: requestedBy,
+    action: "emergency.requested",
+    entityType: "emergency_request",
+    entityId: request.id,
+    message: `Raised an emergency request for ${elderName}.`,
+  });
+  return request;
+}
+
+/** Records that a family member has seen an emergency request. Never resolves it automatically. */
+export function acknowledgeEmergency(requestId: string, actorId: string): EmergencyRequest {
+  const store = readStore();
+  const request = store.emergency_requests.find((r) => r.id === requestId);
+  if (!request) {
+    throw new Error("Emergency request not found.");
+  }
+  if (!isFamilyOwnerOrMember(store, request.family_id, actorId)) {
+    throw new Error("Only a family member can acknowledge an emergency request.");
+  }
+  if (request.status === "resolved") {
+    throw new Error("This emergency request is already resolved.");
+  }
+  if (request.status === "acknowledged") {
+    return request; // already acknowledged: nothing to change, no duplicate activity
+  }
+
+  request.status = "acknowledged";
+  request.acknowledged_by = actorId;
+  request.acknowledged_at = new Date().toISOString();
+  writeStore(store);
+
+  addActivity({
+    familyId: request.family_id,
+    actorId,
+    action: "emergency.acknowledged",
+    entityType: "emergency_request",
+    entityId: request.id,
+    message: "Acknowledged an emergency request.",
+  });
+  return request;
+}
+
+/** Marks an open or acknowledged emergency request as resolved. */
+export function resolveEmergency(requestId: string, actorId: string): EmergencyRequest {
+  const store = readStore();
+  const request = store.emergency_requests.find((r) => r.id === requestId);
+  if (!request) {
+    throw new Error("Emergency request not found.");
+  }
+  if (!isFamilyOwnerOrMember(store, request.family_id, actorId)) {
+    throw new Error("Only a family member can acknowledge an emergency request.");
+  }
+  if (request.status !== "open" && request.status !== "acknowledged") {
+    throw new Error("This emergency request is already resolved.");
+  }
+
+  request.status = "resolved";
+  request.resolved_at = new Date().toISOString();
+  writeStore(store);
+
+  addActivity({
+    familyId: request.family_id,
+    actorId,
+    action: "emergency.resolved",
+    entityType: "emergency_request",
+    entityId: request.id,
+    message: "Resolved an emergency request.",
+  });
+  return request;
+}
+
+/** Newest first. */
+export function listEmergencyRequests(familyId: string): EmergencyRequest[] {
+  const store = readStore();
+  // Reverse first so equal timestamps keep newest-inserted first (stable sort).
+  return store.emergency_requests
+    .filter((r) => r.family_id === familyId)
+    .reverse()
+    .sort((a, b) => b.created_at.localeCompare(a.created_at));
+}
+
+export function getElderPreferences(userId: string): ElderPreferences | null {
+  const store = readStore();
+  return store.elder_preferences.find((p) => p.user_id === userId) ?? null;
+}
+
+/** Saves the elder's display language, creating the preference record on first use. */
+export function setElderLanguage(userId: string, language: LanguageCode): ElderPreferences {
+  if (!LANGUAGE_CODES.includes(language)) {
+    throw new Error("Unsupported language.");
+  }
+  const store = readStore();
+  const now = new Date().toISOString();
+  const existing = store.elder_preferences.find((p) => p.user_id === userId);
+  if (existing) {
+    existing.language = language;
+    existing.updated_at = now;
+    writeStore(store);
+    return existing;
+  }
+
+  const preferences: ElderPreferences = { user_id: userId, language, updated_at: now };
+  store.elder_preferences.push(preferences);
+  writeStore(store);
+  return preferences;
+}
 
 

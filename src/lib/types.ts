@@ -281,3 +281,39 @@ export interface ReminderRule {
   enabled: boolean;
 }
 
+// ---- Phase 6: wellness check-ins, emergency requests, language preference ----
+
+export type WellnessStatus = "ok" | "need_assistance" | "contact_family";
+export type EmergencyStatus = "open" | "acknowledged" | "resolved";
+export type LanguageCode = "en" | "hi";
+
+export interface WellnessCheckin {
+  id: string;
+  family_id: string;
+  elder_id: string;
+  submitted_by: string;
+  status: WellnessStatus;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface EmergencyRequest {
+  id: string;
+  family_id: string;
+  elder_id: string;
+  requested_by: string;
+  message: string | null;
+  status: EmergencyStatus;
+  acknowledged_by: string | null;
+  acknowledged_at: string | null;
+  resolved_at: string | null;
+  created_at: string;
+}
+
+export interface ElderPreferences {
+  user_id: string;
+  language: LanguageCode;
+  updated_at: string;
+}
+
+

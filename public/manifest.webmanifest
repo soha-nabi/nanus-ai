@@ -1,0 +1,18 @@
+{
+  "name": "Nanu's AI",
+  "short_name": "Nanu's AI",
+  "description": "Care is love, made visible.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#F7F5EF",
+  "theme_color": "#193D32",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
