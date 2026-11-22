@@ -316,4 +316,71 @@ export interface ElderPreferences {
   updated_at: string;
 }
 
+// ---- Phase 7: Family Journal, Caregiver Expenses, Document Intelligence ----
+
+export type JournalCategory =
+  | "visit_summary"
+  | "daily_note"
+  | "milestone"
+  | "photo_memory"
+  | "health_observation";
+
+export interface FamilyJournalComment {
+  id: string;
+  entry_id: string;
+  author_id: string;
+  author_name: string;
+  comment: string;
+  created_at: string;
+}
+
+export interface FamilyJournalEntry {
+  id: string;
+  family_id: string;
+  elder_id: string;
+  author_id: string;
+  author_name: string;
+  title: string;
+  content: string;
+  category: JournalCategory;
+  attachment_url: string | null;
+  attachment_name: string | null;
+  comments: FamilyJournalComment[];
+  created_at: string;
+}
+
+export type CaregiverExpenseCategory =
+  | "medication_purchase"
+  | "groceries_supplies"
+  | "medical_transport"
+  | "clinic_copay"
+  | "other";
+
+export interface CaregiverExpenseRecord {
+  id: string;
+  family_id: string;
+  elder_id: string;
+  caregiver_user_id: string;
+  category: CaregiverExpenseCategory;
+  amount: number;
+  currency: string;
+  description: string;
+  receipt_name: string | null;
+  status: "pending_reimbursement" | "reimbursed" | "disputed";
+  created_at: string;
+}
+
+export interface DocumentIntelligenceResult {
+  documentId: string;
+  extractedTitle: string;
+  extractedDates: string[];
+  extractedMedications: {
+    name: string;
+    dosageInstructions: string;
+    confidence: number;
+  }[];
+  extractedDoctorOrClinic: string | null;
+  humanReviewStatus: "pending_review" | "reviewed_and_confirmed";
+}
+
 

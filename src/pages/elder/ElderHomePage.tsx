@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../../features/auth/AuthContext";
+import DemoRoleSwitcher from "../../components/DemoRoleSwitcher";
 import { useLanguage } from "../../features/i18n/useLanguage";
 import { listMedications } from "../../lib/demoStore";
 import type { LanguageCode } from "../../lib/types";
@@ -87,8 +88,10 @@ export default function ElderHomePage() {
   };
 
   return (
-    <main className="min-h-screen bg-ivory px-4 pb-40 pt-8 text-charcoal">
-      <div className="mx-auto max-w-2xl space-y-10">
+    <div className="min-h-screen bg-ivory">
+      <DemoRoleSwitcher />
+      <main className="px-4 pb-40 pt-6 text-charcoal">
+        <div className="mx-auto max-w-2xl space-y-10">
         <header className="space-y-6">
           <LanguageToggle language={language} setLanguage={setLanguage} />
           <h1 className="text-3xl font-bold text-forest sm:text-4xl">{greetingText}</h1>
@@ -173,5 +176,6 @@ export default function ElderHomePage() {
       </div>
       <ElderNav />
     </main>
-  );
+  </div>
+);
 }

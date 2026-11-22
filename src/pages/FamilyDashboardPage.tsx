@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { motion, useReducedMotion, type Variants } from "framer-motion";
 import { Link } from "react-router-dom";
 import { useAuth } from "../features/auth/AuthContext";
+import FamilyNav from "../components/FamilyNav";
+import DemoRoleSwitcher from "../components/DemoRoleSwitcher";
 import { listActivity, listMembers, listTasks, type MemberView, type TaskView } from "../lib/demoStore";
 import type { ActivityEvent } from "../lib/types";
 
@@ -30,7 +32,7 @@ function formatDateTime(iso: string): string {
 }
 
 export default function FamilyDashboardPage() {
-  const { user, family, elder, isDemo } = useAuth();
+  const { user, family, elder } = useAuth();
   const [tasks, setTasks] = useState<TaskView[]>([]);
   const [members, setMembers] = useState<MemberView[]>([]);
   const [activity, setActivity] = useState<ActivityEvent[]>([]);
@@ -91,35 +93,48 @@ export default function FamilyDashboardPage() {
 
   const sectionClass = "space-y-4";
   const emptyClass = "rounded-lg border border-sage bg-white p-4 text-base";
-  const linkClass =
-    "inline-flex min-h-12 items-center rounded-lg bg-forest px-6 py-3 text-lg font-semibold text-ivory hover:bg-sage hover:text-charcoal";
 
   return (
-    <main className="min-h-screen bg-ivory px-4 py-10 text-charcoal">
-      <motion.div
-        className="mx-auto max-w-3xl space-y-10"
-        variants={container}
-        initial={reduceMotion ? false : "hidden"}
-        animate="visible"
-      >
-        <motion.header variants={reduceMotion ? undefined : item}>
-          <h1 className="text-3xl font-bold text-forest sm:text-4xl">Family dashboard</h1>
-          <p className="mt-2 text-lg leading-relaxed">{family.name}</p>
-          {elder && <p className="mt-2 text-xl font-semibold">{elder.display_name}</p>}
-          {isDemo && (
-            <p className="mt-4 rounded-lg border border-sage bg-white p-4 text-base">
-              Demo mode — data is stored only in this browser.
-            </p>
-          )}
-          <nav aria-label="Family shortcuts" className="mt-6 flex flex-col gap-3 sm:flex-row">
-            <Link to="/app/family/tasks" className={linkClass}>
-              Care tasks
-            </Link>
-            <Link to="/app/family/members" className={linkClass}>
-              Members and invitations
-            </Link>
-          </nav>
-        </motion.header>
+    <div className="min-h-screen bg-ivory text-charcoal">
+      <DemoRoleSwitcher />
+      <FamilyNav />
+
+      <main className="mx-auto max-w-4xl px-4 py-8 sm:px-6">
+        <motion.div
+          className="space-y-8"
+          variants={container}
+          initial={reduceMotion ? false : "hidden"}
+          animate="visible"
+        >
+          <motion.header variants={reduceMotion ? undefined : item} className="border-b border-sage/60 pb-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div>
+                <h1 className="font-serif text-3xl font-bold text-forest sm:text-4xl">
+                  {family.name}
+                </h1>
+                {elder && (
+                  <p className="mt-1 text-base text-charcoal/80 font-medium">
+                    Care recipient: <span className="text-forest font-semibold">{elder.display_name}</span>
+                  </p>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <Link
+                  to="/app/family/pulse"
+                  className="rounded-lg bg-forest px-4 py-2 text-xs sm:text-sm font-semibold text-ivory hover:bg-forest/90 shadow-sm"
+                >
+                  Live Care Pulse →
+                </Link>
+                <Link
+                  to="/app/family/journal"
+                  className="rounded-lg border border-forest/30 bg-white px-4 py-2 text-xs sm:text-sm font-medium text-forest hover:bg-sage/20"
+                >
+                  Family Journal
+                </Link>
+              </div>
+            </div>
+          </motion.header>
 
         <motion.section
           aria-labelledby="today-heading"
@@ -222,5 +237,6 @@ export default function FamilyDashboardPage() {
         </motion.section>
       </motion.div>
     </main>
-  );
+  </div>
+);
 }

@@ -1,5 +1,8 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../../features/auth/AuthContext";
+import DemoRoleSwitcher from "../../components/DemoRoleSwitcher";
+import BrandLogo from "../../components/BrandLogo";
 import {
   checkInShift,
   checkOutShift,
@@ -48,7 +51,7 @@ function loadDashboard(userId: string | null): DashboardData {
 }
 
 export default function CaregiverDashboardPage() {
-  const { user, isDemo } = useAuth();
+  const { user } = useAuth();
   const [data, setData] = useState<DashboardData>(() => loadDashboard(user?.id ?? null));
   const [notes, setNotes] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
@@ -97,15 +100,63 @@ export default function CaregiverDashboardPage() {
     "min-h-12 w-full rounded-lg bg-forest px-6 py-3 text-lg font-semibold text-ivory hover:bg-sage hover:text-charcoal sm:w-auto";
 
   return (
-    <main className="min-h-screen bg-ivory px-4 py-10 text-charcoal">
-      <div className="mx-auto max-w-3xl space-y-10">
-        <header>
-          <h1 className="text-3xl font-bold text-forest sm:text-4xl">Caregiver dashboard</h1>
-          {isDemo && (
-            <p className="mt-4 rounded-lg border border-sage bg-white p-4 text-base">
-              Demo mode — data is stored only in this browser.
-            </p>
-          )}
+    <div className="min-h-screen bg-ivory text-charcoal">
+      <DemoRoleSwitcher />
+
+      <header className="border-b border-sage/60 bg-white/80">
+        <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3 sm:px-6">
+          <div className="flex items-center gap-3">
+            <Link to="/app/caregiver">
+              <BrandLogo size="sm" />
+            </Link>
+            <span className="rounded-full bg-sage/30 px-2.5 py-0.5 text-xs font-semibold text-charcoal">
+              Caregiver Workspace
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Link
+              to="/app/caregiver/shifts"
+              className="text-xs sm:text-sm font-medium text-forest hover:underline px-2 py-1"
+            >
+              Shifts
+            </Link>
+            <Link
+              to="/app/caregiver/tasks"
+              className="text-xs sm:text-sm font-medium text-forest hover:underline px-2 py-1"
+            >
+              Tasks
+            </Link>
+            <Link
+              to="/app/caregiver/activity"
+              className="text-xs sm:text-sm font-medium text-forest hover:underline px-2 py-1"
+            >
+              Activity Log
+            </Link>
+            <Link
+              to="/app/caregiver/handover"
+              className="text-xs sm:text-sm font-medium text-forest hover:underline px-2 py-1"
+            >
+              Handover
+            </Link>
+            <Link
+              to="/app/caregiver/profile"
+              className="text-xs sm:text-sm font-medium text-forest hover:underline px-2 py-1"
+            >
+              Profile
+            </Link>
+          </div>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-4xl px-4 py-8 sm:px-6 space-y-8">
+        <header className="border-b border-sage/40 pb-4">
+          <h1 className="font-serif text-3xl font-bold text-forest sm:text-4xl">
+            Caregiver Workspace
+          </h1>
+          <p className="mt-1 text-sm text-charcoal/80">
+            Assigned elder coordination, shift check-in, care activity logging and handover submission.
+          </p>
         </header>
 
         {actionError && (
@@ -189,7 +240,7 @@ export default function CaregiverDashboardPage() {
             </div>
           )}
         </section>
-      </div>
-    </main>
+      </main>
+    </div>
   );
 }

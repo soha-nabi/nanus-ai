@@ -11,6 +11,8 @@ import CareTasksPage from "./pages/CareTasksPage";
 import ParentProfilePage from "./pages/ParentProfilePage";
 import ActivityTimelinePage from "./pages/ActivityTimelinePage";
 import FamilyDashboardPage from "./pages/FamilyDashboardPage";
+import FamilyCarePulsePage from "./pages/FamilyCarePulsePage";
+import FamilyJournalPage from "./pages/FamilyJournalPage";
 import MedicationPage from "./pages/MedicationPage";
 import AppointmentsPage from "./pages/AppointmentsPage";
 import DocumentVaultPage from "./pages/DocumentVaultPage";
@@ -48,6 +50,8 @@ export default function App() {
           path="/app/family"
           element={<FamilyDashboardPage />}
         />
+        <Route path="/app/family/pulse" element={<FamilyCarePulsePage />} />
+        <Route path="/app/family/journal" element={<FamilyJournalPage />} />
         <Route path="/app/family/tasks" element={<CareTasksPage />} />
         <Route path="/app/family/members" element={<FamilyMembersPage />} />
         <Route path="/app/family/profile" element={<ParentProfilePage />} />

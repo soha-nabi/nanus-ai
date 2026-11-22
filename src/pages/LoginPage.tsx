@@ -5,6 +5,7 @@ import { z } from "zod";
 import { Link, Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "../features/auth/AuthContext";
 import { homeForRole } from "../routes/homeForRole";
+import { ensureSharmaDemoSeeded } from "../lib/demoStore";
 
 const loginSchema = z.object({
   email: z.email("Enter a valid email address."),
@@ -58,9 +59,65 @@ export default function LoginPage() {
         <p className="mt-2 text-lg">Welcome back to NANU&apos;S AI.</p>
 
         {isDemo && (
-          <p className="mt-4 rounded-lg border border-sage bg-white p-4 text-base">
-            Demo mode — Supabase is not configured. Accounts are stored only in this browser.
-          </p>
+          <div className="mt-4 rounded-xl border border-sage bg-white p-4 shadow-sm space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-forest uppercase tracking-wider">
+                1-Click Sharma Family Demo Logins
+              </span>
+              <span className="text-[10px] bg-forest/10 text-forest px-2 py-0.5 rounded font-semibold">
+                Instant Sign-In
+              </span>
+            </div>
+            <p className="text-xs text-charcoal/70">
+              Select any role to test their distinct personalized interface:
+            </p>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  ensureSharmaDemoSeeded();
+                  signIn("ananya@sharma.demo", "password123");
+                }}
+                className="rounded-lg border border-sage bg-ivory/60 p-2 text-left hover:bg-forest hover:text-ivory transition-colors"
+              >
+                <span className="font-bold block">Ananya Sharma</span>
+                <span className="text-[10px] block opacity-80">Daughter / Owner</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  ensureSharmaDemoSeeded();
+                  signIn("arjun@sharma.demo", "password123");
+                }}
+                className="rounded-lg border border-sage bg-ivory/60 p-2 text-left hover:bg-forest hover:text-ivory transition-colors"
+              >
+                <span className="font-bold block">Arjun Sharma</span>
+                <span className="text-[10px] block opacity-80">Son / Member</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  ensureSharmaDemoSeeded();
+                  signIn("ramesh@caregiver.demo", "password123");
+                }}
+                className="rounded-lg border border-sage bg-ivory/60 p-2 text-left hover:bg-forest hover:text-ivory transition-colors"
+              >
+                <span className="font-bold block">Ramesh Kumar</span>
+                <span className="text-[10px] block opacity-80">Caregiver</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  ensureSharmaDemoSeeded();
+                  signIn("rajesh@elder.demo", "password123");
+                }}
+                className="rounded-lg border border-sage bg-ivory/60 p-2 text-left hover:bg-forest hover:text-ivory transition-colors"
+              >
+                <span className="font-bold block">Rajesh Sharma</span>
+                <span className="text-[10px] block opacity-80">Elder Parent (75)</span>
+              </button>
+            </div>
+          </div>
         )}
 
         {formError && (

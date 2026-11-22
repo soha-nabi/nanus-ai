@@ -9,17 +9,23 @@ import type {
   CaregiverActivityLog,
   CaregiverActivityType,
   CaregiverAssistance,
+  CaregiverExpenseCategory,
+  CaregiverExpenseRecord,
   CaregiverProfile,
   CaregiverShift,
+  DocumentIntelligenceResult,
   DocumentRecord,
   DocumentType,
   ElderPreferences,
   ElderProfile,
   EmergencyRequest,
   Family,
+  FamilyJournalComment,
+  FamilyJournalEntry,
   FamilyMember,
   HandoverSummary,
   Invitation,
+  JournalCategory,
   LanguageCode,
   Medication,
   MedicationEvent,
@@ -42,7 +48,7 @@ import type {
 // Medication, appointment and document data is also stored unencrypted in this browser's
 // localStorage in demo mode. Do not enter real health information into demo mode.
 
-export const DEMO_STORE_VERSION = 7;
+export const DEMO_STORE_VERSION = 8;
 const STORAGE_KEY = "nanus-demo-v1";
 const MIN_PASSWORD_LENGTH = 6;
 const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -81,6 +87,8 @@ interface DemoStore {
   wellness_checkins: WellnessCheckin[];
   emergency_requests: EmergencyRequest[];
   elder_preferences: ElderPreferences[];
+  journal_entries: FamilyJournalEntry[];
+  caregiver_expenses: CaregiverExpenseRecord[];
   session_user_id: string | null;
 }
 
@@ -119,6 +127,8 @@ function emptyStore(): DemoStore {
     wellness_checkins: [],
     emergency_requests: [],
     elder_preferences: [],
+    journal_entries: [],
+    caregiver_expenses: [],
     session_user_id: null,
   };
 }
@@ -129,8 +139,8 @@ function readStore(): DemoStore {
   if (!raw) return emptyStore();
   try {
     const parsed = JSON.parse(raw) as Partial<DemoStore>;
-    // Version 1 data is migrated in place (new arrays default to []). Any other version is unknown, so start clean.
-    if (![1, 2, 3, 4, 5, 6, DEMO_STORE_VERSION].includes(parsed.version ?? -1)) return emptyStore();
+    // Version 1-7 data is migrated in place (new arrays default to []). Any other version is unknown, so start clean.
+    if (![1, 2, 3, 4, 5, 6, 7, DEMO_STORE_VERSION].includes(parsed.version ?? -1)) return emptyStore();
     return {
       version: DEMO_STORE_VERSION,
       users: parsed.users ?? [],
@@ -154,6 +164,8 @@ function readStore(): DemoStore {
       wellness_checkins: parsed.wellness_checkins ?? [],
       emergency_requests: parsed.emergency_requests ?? [],
       elder_preferences: parsed.elder_preferences ?? [],
+      journal_entries: parsed.journal_entries ?? [],
+      caregiver_expenses: parsed.caregiver_expenses ?? [],
       session_user_id: parsed.session_user_id ?? null,
     };
   } catch {
@@ -2272,6 +2284,770 @@ export function loadSyntheticSharmaFamily(ownerUserId: string): Family {
   });
 
   return family;
+}
+
+// ---- Phase 7: Family Journal, Caregiver Expenses, Document Intelligence, Demo Persona Switching ----
+
+export function listJournalEntries(familyId: string): FamilyJournalEntry[] {
+  const store = readStore();
+  return (store.journal_entries ?? [])
+    .filter((j) => j.family_id === familyId)
+    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+}
+
+export function createJournalEntry({
+  familyId,
+  elderId,
+  authorId,
+  authorName,
+  title,
+  content,
+  category,
+  attachmentUrl,
+  attachmentName,
+}: {
+  familyId: string;
+  elderId: string;
+  authorId: string;
+  authorName: string;
+  title: string;
+  content: string;
+  category: JournalCategory;
+  attachmentUrl?: string | null;
+  attachmentName?: string | null;
+}): FamilyJournalEntry {
+  const cleanTitle = title.trim();
+  const cleanContent = content.trim();
+  if (!cleanTitle || !cleanContent) {
+    throw new Error("Please enter both a title and message for the journal entry.");
+  }
+
+  const store = readStore();
+  const entry: FamilyJournalEntry = {
+    id: crypto.randomUUID(),
+    family_id: familyId,
+    elder_id: elderId,
+    author_id: authorId,
+    author_name: authorName,
+    title: cleanTitle,
+    content: cleanContent,
+    category,
+    attachment_url: attachmentUrl ?? null,
+    attachment_name: attachmentName ?? null,
+    comments: [],
+    created_at: new Date().toISOString(),
+  };
+
+  if (!store.journal_entries) store.journal_entries = [];
+  store.journal_entries.push(entry);
+
+  // Record activity
+  store.activity_events.push({
+    id: crypto.randomUUID(),
+    family_id: familyId,
+    actor_id: authorId,
+    action: "journal_created",
+    entity_type: "family_journal",
+    entity_id: entry.id,
+    message: `${authorName} added a family journal update: "${cleanTitle}"`,
+    created_at: entry.created_at,
+  });
+
+  writeStore(store);
+  return entry;
+}
+
+export function addJournalComment({
+  entryId,
+  authorId,
+  authorName,
+  comment,
+}: {
+  entryId: string;
+  authorId: string;
+  authorName: string;
+  comment: string;
+}): FamilyJournalComment {
+  const cleanComment = comment.trim();
+  if (!cleanComment) throw new Error("Comment cannot be empty.");
+
+  const store = readStore();
+  const entry = (store.journal_entries ?? []).find((j) => j.id === entryId);
+  if (!entry) throw new Error("Journal entry not found.");
+
+  const newComment: FamilyJournalComment = {
+    id: crypto.randomUUID(),
+    entry_id: entryId,
+    author_id: authorId,
+    author_name: authorName,
+    comment: cleanComment,
+    created_at: new Date().toISOString(),
+  };
+
+  if (!entry.comments) entry.comments = [];
+  entry.comments.push(newComment);
+  writeStore(store);
+  return newComment;
+}
+
+export function listCaregiverExpenses(familyId: string): CaregiverExpenseRecord[] {
+  const store = readStore();
+  return (store.caregiver_expenses ?? [])
+    .filter((e) => e.family_id === familyId)
+    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+}
+
+export function createCaregiverExpense({
+  familyId,
+  elderId,
+  caregiverUserId,
+  category,
+  amount,
+  currency = "INR",
+  description,
+  receiptName,
+}: {
+  familyId: string;
+  elderId: string;
+  caregiverUserId: string;
+  category: CaregiverExpenseCategory;
+  amount: number;
+  currency?: string;
+  description: string;
+  receiptName?: string | null;
+}): CaregiverExpenseRecord {
+  if (amount <= 0 || isNaN(amount)) {
+    throw new Error("Expense amount must be a positive number.");
+  }
+  const cleanDescription = description.trim();
+  if (!cleanDescription) {
+    throw new Error("Please provide a description of the care expense.");
+  }
+
+  const store = readStore();
+  const expense: CaregiverExpenseRecord = {
+    id: crypto.randomUUID(),
+    family_id: familyId,
+    elder_id: elderId,
+    caregiver_user_id: caregiverUserId,
+    category,
+    amount,
+    currency,
+    description: cleanDescription,
+    receipt_name: receiptName ?? null,
+    status: "pending_reimbursement",
+    created_at: new Date().toISOString(),
+  };
+
+  if (!store.caregiver_expenses) store.caregiver_expenses = [];
+  store.caregiver_expenses.push(expense);
+
+  store.activity_events.push({
+    id: crypto.randomUUID(),
+    family_id: familyId,
+    actor_id: caregiverUserId,
+    action: "expense_logged",
+    entity_type: "caregiver_expense",
+    entity_id: expense.id,
+    message: `Caregiver logged expense of ${currency === "INR" ? "₹" : ""}${amount} for ${cleanDescription}`,
+    created_at: expense.created_at,
+  });
+
+  writeStore(store);
+  return expense;
+}
+
+export function updateExpenseStatus(
+  id: string,
+  status: "pending_reimbursement" | "reimbursed" | "disputed"
+): CaregiverExpenseRecord {
+  const store = readStore();
+  const expense = (store.caregiver_expenses ?? []).find((e) => e.id === id);
+  if (!expense) throw new Error("Expense record not found.");
+
+  expense.status = status;
+  writeStore(store);
+  return expense;
+}
+
+export function getDocumentIntelligence(documentId: string): DocumentIntelligenceResult {
+  const store = readStore();
+  const doc = (store.document_records ?? []).find((d) => d.id === documentId);
+  const title = doc?.title ?? "Medical Consultation Document";
+
+  // Synthetic extraction for demonstration and human review
+  return {
+    documentId,
+    extractedTitle: title.includes("Apollo") ? title : `Extracted: ${title}`,
+    extractedDates: ["2026-11-18", "Follow-up: 2026-12-18"],
+    extractedMedications: [
+      {
+        name: "Telmisartan 40mg",
+        dosageInstructions: "1 tablet once daily morning after breakfast",
+        confidence: 0.96,
+      },
+      {
+        name: "Atorvastatin 10mg",
+        dosageInstructions: "1 tablet at bedtime",
+        confidence: 0.94,
+      },
+    ],
+    extractedDoctorOrClinic: "Dr. K. Radhakrishnan, Senior Cardiologist — Apollo Clinics",
+    humanReviewStatus: "pending_review",
+  };
+}
+
+export const DEMO_PERSONAS = [
+  {
+    key: "ananya",
+    name: "Ananya Sharma",
+    role: "owner" as Role,
+    location: "Bengaluru",
+    relationship: "Daughter (Family Owner)",
+    email: "ananya@sharma.demo",
+    avatar: "AS",
+  },
+  {
+    key: "arjun",
+    name: "Arjun Sharma",
+    role: "family_member" as Role,
+    location: "Hyderabad",
+    relationship: "Son (Family Member)",
+    email: "arjun@sharma.demo",
+    avatar: "AS",
+  },
+  {
+    key: "ramesh",
+    name: "Ramesh Kumar",
+    role: "caregiver" as Role,
+    location: "Hyderabad",
+    relationship: "Appointed External Caregiver",
+    email: "ramesh@caregiver.demo",
+    avatar: "RK",
+  },
+  {
+    key: "rajesh",
+    name: "Rajesh Sharma",
+    role: "elder" as Role,
+    location: "Hyderabad",
+    relationship: "Elderly Parent (Age 75)",
+    email: "rajesh@elder.demo",
+    avatar: "RS",
+  },
+] as const;
+
+export type DemoPersonaKey = (typeof DEMO_PERSONAS)[number]["key"];
+
+/**
+ * Seeds the complete, synthetic Sharma Family scenario meeting all prompt criteria:
+ * - Parent: Rajesh Sharma, age 75 (Hyderabad)
+ * - Children: Ananya Sharma (Bengaluru - Owner), Arjun Sharma (Hyderabad - Member)
+ * - Caregiver: Ramesh Kumar (Hyderabad - Approved Caregiver)
+ * - Real dual medication schedule, 1 missed confirmation alert, caregiver shift, 
+ *   upcoming appointment, tasks (completed, pending, overdue), sample report,
+ *   care handover, family journal updates.
+ */
+export function ensureSharmaDemoSeeded(): void {
+  const store = readStore();
+  const existingFamily = store.families.find((f) => f.name.includes("Sharma"));
+  if (existingFamily && store.users.some((u) => u.email === "ananya@sharma.demo")) {
+    return; // Already initialized
+  }
+
+  const now = new Date();
+  const familyId = "demo-family-sharma";
+  const elderId = "demo-elder-rajesh";
+
+  // Create users
+  const users: DemoUser[] = [
+    {
+      id: "demo-user-ananya",
+      email: "ananya@sharma.demo",
+      password: "password123",
+      full_name: "Ananya Sharma (Bengaluru)",
+    },
+    {
+      id: "demo-user-arjun",
+      email: "arjun@sharma.demo",
+      password: "password123",
+      full_name: "Arjun Sharma (Hyderabad)",
+    },
+    {
+      id: "demo-user-ramesh",
+      email: "ramesh@caregiver.demo",
+      password: "password123",
+      full_name: "Ramesh Kumar (Caregiver)",
+    },
+    {
+      id: "demo-user-rajesh",
+      email: "rajesh@elder.demo",
+      password: "password123",
+      full_name: "Rajesh Sharma (Age 75)",
+    },
+  ];
+
+  // Upsert users
+  for (const u of users) {
+    if (!store.users.some((existing) => existing.id === u.id)) {
+      store.users.push(u);
+    }
+  }
+
+  // Set family
+  if (!store.families.some((f) => f.id === familyId)) {
+    store.families.push({
+      id: familyId,
+      name: "Sharma Family (Synthetic Demo)",
+      created_by: "demo-user-ananya",
+      created_at: new Date(now.getTime() - 30 * 86400000).toISOString(),
+    });
+  }
+
+  // Set elder profile
+  if (!store.elder_profiles.some((e) => e.id === elderId)) {
+    store.elder_profiles.push({
+      id: elderId,
+      family_id: familyId,
+      display_name: "Rajesh Sharma (Age 75)",
+      created_at: new Date(now.getTime() - 30 * 86400000).toISOString(),
+    });
+  }
+
+  // Set family members
+  const members: FamilyMember[] = [
+    {
+      id: "demo-member-ananya",
+      family_id: familyId,
+      user_id: "demo-user-ananya",
+      role: "owner",
+      status: "active",
+      joined_at: new Date(now.getTime() - 30 * 86400000).toISOString(),
+    },
+    {
+      id: "demo-member-arjun",
+      family_id: familyId,
+      user_id: "demo-user-arjun",
+      role: "family_member",
+      status: "active",
+      joined_at: new Date(now.getTime() - 28 * 86400000).toISOString(),
+    },
+    {
+      id: "demo-member-ramesh",
+      family_id: familyId,
+      user_id: "demo-user-ramesh",
+      role: "caregiver",
+      status: "active",
+      joined_at: new Date(now.getTime() - 14 * 86400000).toISOString(),
+    },
+    {
+      id: "demo-member-rajesh",
+      family_id: familyId,
+      user_id: "demo-user-rajesh",
+      role: "elder",
+      status: "active",
+      joined_at: new Date(now.getTime() - 30 * 86400000).toISOString(),
+    },
+  ];
+
+  for (const m of members) {
+    if (!store.family_members.some((existing) => existing.user_id === m.user_id)) {
+      store.family_members.push(m);
+    }
+  }
+
+  // Caregiver profile for Ramesh Kumar
+  if (!store.caregiver_profiles.some((cp) => cp.user_id === "demo-user-ramesh")) {
+    store.caregiver_profiles.push({
+      id: "demo-cp-ramesh",
+      user_id: "demo-user-ramesh",
+      family_id: familyId,
+      experience: "7 years geriatric home-care experience. Certified in elderly mobility and chronic care assistance.",
+      qualifications: "Certified Nursing Assistant (CNA), Senior First-Aid & CPR Certified (Red Cross India)",
+      contact_phone: "+91 98765 43210",
+      emergency_contact: "+91 98765 43211 (Brother)",
+      identity_status: "verified",
+      reference_status: "verified",
+      background_status: "pending_review",
+      family_approval: "approved",
+      created_at: new Date(now.getTime() - 14 * 86400000).toISOString(),
+      updated_at: new Date(now.getTime() - 2 * 86400000).toISOString(),
+    });
+  }
+
+  // Caregiver shifts
+  if (!store.caregiver_shifts.some((s) => s.family_id === familyId)) {
+    const todayMorning = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 9, 0, 0);
+    const todayEvening = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 17, 0, 0);
+    store.caregiver_shifts.push({
+      id: "demo-shift-today",
+      family_id: familyId,
+      elder_id: elderId,
+      caregiver_user_id: "demo-user-ramesh",
+      scheduled_start: todayMorning.toISOString(),
+      scheduled_end: todayEvening.toISOString(),
+      check_in_at: new Date(todayMorning.getTime() + 5 * 60000).toISOString(), // Checked in at 09:05
+      check_out_at: null,
+      status: "checked_in",
+      shift_notes: "Morning walk completed in apartment courtyard. Rajesh-ji is in good spirits.",
+      created_by: "demo-user-ananya",
+      created_at: new Date(now.getTime() - 86400000).toISOString(),
+    });
+  }
+
+  // Medications
+  if (!store.medications.some((m) => m.family_id === familyId)) {
+    const med1Id = "demo-med-telmisartan";
+    const med2Id = "demo-med-metformin";
+    const med3Id = "demo-med-atorvastatin";
+
+    store.medications.push(
+      {
+        id: med1Id,
+        family_id: familyId,
+        elder_id: elderId,
+        name: "Telmisartan 40mg (BP Management)",
+        instructions: "1 tablet once daily in the morning after breakfast",
+        frequency: "Once daily (Morning)",
+        scheduled_times: ["08:30"],
+        start_date: localDateString(now, -60),
+        end_date: null,
+        prescriber: "Dr. K. Radhakrishnan (Apollo Clinics)",
+        refill_date: localDateString(now, 5),
+        refill_responsible: "demo-user-ananya",
+        notes: "Monitor blood pressure regularly before intake.",
+        status: "active",
+        created_by: "demo-user-ananya",
+        created_at: new Date(now.getTime() - 60 * 86400000).toISOString(),
+      },
+      {
+        id: med2Id,
+        family_id: familyId,
+        elder_id: elderId,
+        name: "Metformin 500mg (Glycemic Care)",
+        instructions: "1 tablet with lunch",
+        frequency: "Once daily (Lunch)",
+        scheduled_times: ["13:00"],
+        start_date: localDateString(now, -45),
+        end_date: null,
+        prescriber: "Dr. K. Radhakrishnan (Apollo Clinics)",
+        refill_date: localDateString(now, 12),
+        refill_responsible: "demo-user-arjun",
+        notes: "Take strictly after meal to avoid gastric irritation.",
+        status: "active",
+        created_by: "demo-user-ananya",
+        created_at: new Date(now.getTime() - 45 * 86400000).toISOString(),
+      },
+      {
+        id: med3Id,
+        family_id: familyId,
+        elder_id: elderId,
+        name: "Atorvastatin 10mg (Lipid Support)",
+        instructions: "1 tablet at night before bed",
+        frequency: "Once daily (Night)",
+        scheduled_times: ["21:00"],
+        start_date: localDateString(now, -60),
+        end_date: null,
+        prescriber: "Dr. K. Radhakrishnan (Apollo Clinics)",
+        refill_date: localDateString(now, -2), // Refill overdue!
+        refill_responsible: "demo-user-ananya",
+        notes: "Overdue refill alert active.",
+        status: "active",
+        created_by: "demo-user-ananya",
+        created_at: new Date(now.getTime() - 60 * 86400000).toISOString(),
+      }
+    );
+
+    // Medication Events for today:
+    // 1. Morning dose: Rajesh confirmed taken at 08:35, Ramesh assisted.
+    const morningScheduled = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 8, 30, 0).toISOString();
+    store.medication_events.push({
+      id: "demo-event-med1-today",
+      medication_id: med1Id,
+      family_id: familyId,
+      scheduled_at: morningScheduled,
+      parent_confirmation: "taken",
+      parent_confirmed_at: new Date(now.getFullYear(), now.getMonth(), now.getDate(), 8, 36, 0).toISOString(),
+      caregiver_assistance: "assisted",
+      caregiver_user_id: "demo-user-ramesh",
+      caregiver_recorded_at: new Date(now.getFullYear(), now.getMonth(), now.getDate(), 8, 40, 0).toISOString(),
+      notes: "Taken with warm water after idli breakfast.",
+    });
+
+    // 2. Afternoon dose: MISSED confirmation (Simulates missed confirmation workflow for accountability)
+    const lunchScheduled = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 13, 0, 0).toISOString();
+    store.medication_events.push({
+      id: "demo-event-med2-today",
+      medication_id: med2Id,
+      family_id: familyId,
+      scheduled_at: lunchScheduled,
+      parent_confirmation: null,
+      parent_confirmed_at: null,
+      caregiver_assistance: null,
+      caregiver_user_id: null,
+      caregiver_recorded_at: null,
+      notes: "Missed confirmation alert generated at 13:30. Caregiver Ramesh notified.",
+    });
+  }
+
+  // Care tasks
+  if (!store.care_tasks.some((t) => t.family_id === familyId)) {
+    store.care_tasks.push(
+      {
+        id: "demo-task-1",
+        family_id: familyId,
+        elder_id: elderId,
+        title: "Morning blood pressure check (Target: < 135/85)",
+        description: "Measure resting BP using the Omron digital monitor and note reading in daily log.",
+        category: "health",
+        assigned_to: "demo-user-ramesh",
+        due_at: new Date(now.getFullYear(), now.getMonth(), now.getDate(), 10, 0, 0).toISOString(),
+        priority: "high",
+        status: "completed",
+        completed_at: new Date(now.getFullYear(), now.getMonth(), now.getDate(), 9, 45, 0).toISOString(),
+        created_by: "demo-user-ananya",
+        created_at: new Date(now.getTime() - 86400000).toISOString(),
+      },
+      {
+        id: "demo-task-2",
+        family_id: familyId,
+        elder_id: elderId,
+        title: "Arrange replacement AA batteries for BP monitor",
+        description: "Pick up Duracell Ultra pack from local pharmacy on way home.",
+        category: "household",
+        assigned_to: "demo-user-arjun",
+        due_at: new Date(now.getFullYear(), now.getMonth(), now.getDate(), 19, 0, 0).toISOString(),
+        priority: "normal",
+        status: "open",
+        completed_at: null,
+        created_by: "demo-user-ananya",
+        created_at: new Date(now.getTime() - 43200000).toISOString(),
+      },
+      {
+        id: "demo-task-3",
+        family_id: familyId,
+        elder_id: elderId,
+        title: "Refill Atorvastatin 10mg (Overdue by 2 days)",
+        description: "Order 30-day strip from Apollo 24/7 or MediBuddy to prevent therapy lapse.",
+        category: "medication",
+        assigned_to: "demo-user-ananya",
+        due_at: new Date(now.getTime() - 24 * 3600000).toISOString(), // Overdue!
+        priority: "high",
+        status: "open",
+        completed_at: null,
+        created_by: "demo-user-ananya",
+        created_at: new Date(now.getTime() - 72 * 3600000).toISOString(),
+      }
+    );
+  }
+
+  // Upcoming appointment
+  if (!store.appointments.some((a) => a.family_id === familyId)) {
+    const aptTime = new Date(now.getTime() + 3 * 86400000);
+    aptTime.setHours(11, 0, 0, 0);
+    store.appointments.push({
+      id: "demo-apt-cardiology",
+      family_id: familyId,
+      elder_id: elderId,
+      title: "Cardiology Follow-Up & ECG Review",
+      provider: "Dr. K. Radhakrishnan, Senior Cardiologist",
+      location: "Apollo Clinics, Rd No 36, Jubilee Hills, Hyderabad",
+      scheduled_at: aptTime.toISOString(),
+      assigned_to: "demo-user-arjun",
+      status: "scheduled",
+      notes: "Arjun will accompany father. Carry recent BP log and previous echocardiogram report.",
+      created_by: "demo-user-ananya",
+      created_at: new Date(now.getTime() - 7 * 86400000).toISOString(),
+    });
+  }
+
+  // Document Vault sample record
+  if (!store.document_records.some((d) => d.family_id === familyId)) {
+    store.document_records.push(
+      {
+        id: "demo-doc-apollo-cardio",
+        family_id: familyId,
+        elder_id: elderId,
+        title: "Apollo Hospital — Cardiology Consultation & Prescription",
+        document_type: "prescription",
+        document_date: localDateString(now, -14),
+        file_name: "apollo-cardio-prescription-nov2026.pdf",
+        uploaded_by: "demo-user-ananya",
+        created_at: new Date(now.getTime() - 14 * 86400000).toISOString(),
+      },
+      {
+        id: "demo-doc-lipid-panel",
+        family_id: familyId,
+        elder_id: elderId,
+        title: "Diagnostic Lab Report — Fasting Lipid Profile & HbA1c",
+        document_type: "report",
+        document_date: localDateString(now, -10),
+        file_name: "thyrocare-lipid-hba1c-report.pdf",
+        uploaded_by: "demo-user-arjun",
+        created_at: new Date(now.getTime() - 10 * 86400000).toISOString(),
+      }
+    );
+  }
+
+  // Care Handover
+  if (!store.care_handovers.some((h) => h.family_id === familyId)) {
+    store.care_handovers.push({
+      id: "demo-handover-1",
+      family_id: familyId,
+      elder_id: elderId,
+      from_user_id: "demo-user-ramesh",
+      to_user_id: "demo-user-ananya",
+      status: "acknowledged",
+      acknowledged_by: "demo-user-ananya",
+      acknowledged_at: new Date(now.getTime() - 16 * 3600000).toISOString(),
+      created_at: new Date(now.getTime() - 18 * 3600000).toISOString(),
+      summary_json: {
+        generated_at: new Date(now.getTime() - 18 * 3600000).toISOString(),
+        completed_tasks: [
+          { id: "t1", title: "Morning walk & mobility support (20 mins)" },
+          { id: "t2", title: "Morning BP check: 128/82 mmHg" },
+        ],
+        medication_confirmations: [
+          {
+            medicine: "Telmisartan 40mg",
+            scheduled_at: "08:30",
+            parent_confirmation: "taken",
+            caregiver_assistance: "assisted",
+          },
+        ],
+        pending_tasks: [
+          {
+            id: "t3",
+            title: "Refill Atorvastatin 10mg",
+            overdue: true,
+          },
+        ],
+        upcoming_appointments: [
+          {
+            id: "a1",
+            title: "Cardiology Review at Apollo Clinics",
+            scheduled_at: new Date(now.getTime() + 3 * 86400000).toISOString(),
+          },
+        ],
+        caregiver_notes: [
+          "Rajesh-ji had good appetite for lunch. Mentioned mild knee stiffness during afternoon walk.",
+          "Blood pressure steady throughout shift.",
+        ],
+        unresolved_issues: [
+          "Atorvastatin medication refill still pending.",
+        ],
+      },
+    });
+  }
+
+  // Wellness checkin
+  if (!store.wellness_checkins.some((w) => w.family_id === familyId)) {
+    store.wellness_checkins.push({
+      id: "demo-checkin-rajesh-today",
+      family_id: familyId,
+      elder_id: elderId,
+      submitted_by: "demo-user-rajesh",
+      status: "ok",
+      notes: "Voice check-in: 'I am okay, finished morning walk.' Recorded with speech assistant.",
+      created_at: new Date(now.getFullYear(), now.getMonth(), now.getDate(), 8, 45, 0).toISOString(),
+    });
+  }
+
+  // Family Journal
+  if (!store.journal_entries.some((j) => j.family_id === familyId)) {
+    store.journal_entries.push(
+      {
+        id: "demo-journal-1",
+        family_id: familyId,
+        elder_id: elderId,
+        author_id: "demo-user-ananya",
+        author_name: "Ananya Sharma (Bengaluru)",
+        title: "Sunday Chai & Video Call with Nana",
+        content: "We had a wonderful 40-minute video call today! Papa showed me the flowering jasmine in the balcony. He looked cheerful and mentioned Ramesh is helping him practice his knee flexion exercises every morning.",
+        category: "visit_summary",
+        attachment_url: null,
+        attachment_name: "sunday-family-call.jpg (Synthetic preview)",
+        comments: [
+          {
+            id: "c1",
+            entry_id: "demo-journal-1",
+            author_id: "demo-user-arjun",
+            author_name: "Arjun Sharma",
+            comment: "I visited Papa in the afternoon too. Brought him fresh guavas from Somajiguda market!",
+            created_at: new Date(now.getTime() - 20 * 3600000).toISOString(),
+          },
+        ],
+        created_at: new Date(now.getTime() - 24 * 3600000).toISOString(),
+      },
+      {
+        id: "demo-journal-2",
+        family_id: familyId,
+        elder_id: elderId,
+        author_id: "demo-user-ramesh",
+        author_name: "Ramesh Kumar (Caregiver)",
+        title: "Morning Courtyard Walk Milestone",
+        content: "Rajesh-ji completed 600 continuous steps in the shaded courtyard today without needing the walking cane for support. Steadiness is noticeably improved from last week.",
+        category: "milestone",
+        attachment_url: null,
+        attachment_name: null,
+        comments: [
+          {
+            id: "c2",
+            entry_id: "demo-journal-2",
+            author_id: "demo-user-ananya",
+            author_name: "Ananya Sharma",
+            comment: "Such wonderful news! Thank you Ramesh for your patience and gentle encouragement.",
+            created_at: new Date(now.getTime() - 10 * 3600000).toISOString(),
+          },
+        ],
+        created_at: new Date(now.getTime() - 12 * 3600000).toISOString(),
+      }
+    );
+  }
+
+  // Caregiver expense
+  if (!store.caregiver_expenses.some((e) => e.family_id === familyId)) {
+    store.caregiver_expenses.push({
+      id: "demo-exp-1",
+      family_id: familyId,
+      elder_id: elderId,
+      caregiver_user_id: "demo-user-ramesh",
+      category: "medication_purchase",
+      amount: 480,
+      currency: "INR",
+      description: "Purchased Volini pain relief gel & antiseptic bandages from Apollo Pharmacy",
+      receipt_name: "apollo-pharmacy-receipt-480.pdf",
+      status: "pending_reimbursement",
+      created_at: new Date(now.getTime() - 6 * 3600000).toISOString(),
+    });
+  }
+
+  // Set default active user to Ananya Sharma (Family Owner) if none set
+  if (!store.session_user_id) {
+    store.session_user_id = "demo-user-ananya";
+  }
+
+  writeStore(store);
+}
+
+/**
+ * Switches the active demonstration persona instantly.
+ */
+export function switchDemoPersona(personaKey: DemoPersonaKey): Profile {
+  ensureSharmaDemoSeeded();
+  const store = readStore();
+  const emailMap: Record<DemoPersonaKey, string> = {
+    ananya: "ananya@sharma.demo",
+    arjun: "arjun@sharma.demo",
+    ramesh: "ramesh@caregiver.demo",
+    rajesh: "rajesh@elder.demo",
+  };
+  const targetEmail = emailMap[personaKey];
+  const user = store.users.find((u) => u.email === targetEmail);
+  if (!user) throw new Error(`Demo persona ${personaKey} not found.`);
+
+  store.session_user_id = user.id;
+  writeStore(store);
+  return toProfile(user);
 }
 
 
