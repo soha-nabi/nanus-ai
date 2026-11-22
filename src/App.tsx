@@ -21,6 +21,9 @@ import CaregiverShiftsPage from "./pages/caregiver/CaregiverShiftsPage";
 import CaregiverTasksPage from "./pages/caregiver/CaregiverTasksPage";
 import CaregiverActivityPage from "./pages/caregiver/CaregiverActivityPage";
 import CaregiverProfilePage from "./pages/caregiver/CaregiverProfilePage";
+import NotificationsPage from "./pages/NotificationsPage";
+import HandoverPage from "./pages/HandoverPage";
+import ReminderSettingsPage from "./pages/ReminderSettingsPage";
 import RequireAuth from "./routes/RequireAuth";
 
 export default function App() {
@@ -50,6 +53,9 @@ export default function App() {
         <Route path="/app/family/appointments" element={<AppointmentsPage />} />
         <Route path="/app/family/documents" element={<DocumentVaultPage />} />
         <Route path="/app/family/caregivers" element={<CaregiverManagementPage />} />
+        <Route path="/app/family/notifications" element={<NotificationsPage />} />
+        <Route path="/app/family/handover" element={<HandoverPage />} />
+        <Route path="/app/family/reminders" element={<ReminderSettingsPage />} />
       </Route>
 
       <Route element={<RequireAuth roles={["caregiver"]} />}>
@@ -58,6 +64,8 @@ export default function App() {
         <Route path="/app/caregiver/tasks" element={<CaregiverTasksPage />} />
         <Route path="/app/caregiver/activity" element={<CaregiverActivityPage />} />
         <Route path="/app/caregiver/profile" element={<CaregiverProfilePage />} />
+        <Route path="/app/caregiver/notifications" element={<NotificationsPage />} />
+        <Route path="/app/caregiver/handover" element={<HandoverPage />} />
       </Route>
 
       <Route element={<RequireAuth roles={["elder"]} />}>
