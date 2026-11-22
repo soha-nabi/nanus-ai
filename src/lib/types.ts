@@ -40,3 +40,48 @@ export interface SessionContext {
   membership: FamilyMember | null;
   elder: ElderProfile | null;
 }
+
+export type CareTaskCategory = "medication" | "appointment" | "household" | "health" | "other";
+export type CareTaskPriority = "low" | "normal" | "high";
+export type CareTaskStatus = "open" | "completed";
+
+export interface CareTask {
+  id: string;
+  family_id: string;
+  elder_id: string;
+  title: string;
+  description: string;
+  category: CareTaskCategory;
+  assigned_to: string | null;
+  due_at: string | null;
+  priority: CareTaskPriority;
+  status: CareTaskStatus;
+  completed_at: string | null;
+  created_by: string;
+  created_at: string;
+}
+
+export type InvitationStatus = "pending" | "accepted" | "revoked";
+
+export interface Invitation {
+  id: string;
+  family_id: string;
+  invited_email: string;
+  assigned_role: Role;
+  code: string;
+  status: InvitationStatus;
+  expires_at: string;
+  created_by: string;
+  created_at: string;
+}
+
+export interface ActivityEvent {
+  id: string;
+  family_id: string;
+  actor_id: string;
+  action: string;
+  entity_type: string;
+  entity_id: string;
+  message: string;
+  created_at: string;
+}

@@ -7,6 +7,11 @@ import SignupPage from "./pages/SignupPage";
 import InvitePage from "./pages/InvitePage";
 import SetupPage from "./pages/SetupPage";
 import AreaPlaceholder from "./pages/AreaPlaceholder";
+import FamilyMembersPage from "./pages/FamilyMembersPage";
+import CareTasksPage from "./pages/CareTasksPage";
+import ParentProfilePage from "./pages/ParentProfilePage";
+import ActivityTimelinePage from "./pages/ActivityTimelinePage";
+import FamilyDashboardPage from "./pages/FamilyDashboardPage";
 import RequireAuth from "./routes/RequireAuth";
 
 export default function App() {
@@ -26,13 +31,12 @@ export default function App() {
       <Route element={<RequireAuth roles={["owner", "family_member"]} />}>
         <Route
           path="/app/family"
-          element={
-            <AreaPlaceholder
-              title="Family area"
-              description="Family members will coordinate their elder's care here."
-            />
-          }
+          element={<FamilyDashboardPage />}
         />
+        <Route path="/app/family/tasks" element={<CareTasksPage />} />
+        <Route path="/app/family/members" element={<FamilyMembersPage />} />
+        <Route path="/app/family/profile" element={<ParentProfilePage />} />
+        <Route path="/app/family/timeline" element={<ActivityTimelinePage />} />
       </Route>
 
       <Route element={<RequireAuth roles={["caregiver"]} />}>
