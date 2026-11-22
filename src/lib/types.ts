@@ -85,3 +85,77 @@ export interface ActivityEvent {
   message: string;
   created_at: string;
 }
+
+
+// ---- Phase 3: medications, appointments, document metadata ----
+
+export type MedicationStatus = "active" | "stopped";
+
+export interface Medication {
+  id: string;
+  family_id: string;
+  elder_id: string;
+  name: string;
+  instructions: string; // text as entered from the prescription
+  frequency: string;
+  scheduled_times: string[]; // "HH:MM"
+  start_date: string; // YYYY-MM-DD
+  end_date: string | null; // YYYY-MM-DD
+  prescriber: string | null;
+  refill_date: string | null; // YYYY-MM-DD
+  refill_responsible: string | null; // user id
+  notes: string | null;
+  status: MedicationStatus;
+  created_by: string;
+  created_at: string;
+}
+
+export type ParentConfirmation = "taken" | "skipped" | "unable_to_confirm";
+export type CaregiverAssistance = "assisted" | "not_assisted";
+
+/** One scheduled dose. Parent confirmation and caregiver assistance are stored separately. */
+export interface MedicationEvent {
+  id: string;
+  medication_id: string;
+  family_id: string;
+  scheduled_at: string; // ISO
+  parent_confirmation: ParentConfirmation | null;
+  parent_confirmed_at: string | null; // ISO
+  caregiver_assistance: CaregiverAssistance | null;
+  caregiver_user_id: string | null;
+  caregiver_recorded_at: string | null; // ISO
+  notes: string | null;
+}
+
+export type AppointmentStatus = "scheduled" | "cancelled" | "completed";
+
+export interface Appointment {
+  id: string;
+  family_id: string;
+  elder_id: string;
+  title: string;
+  provider: string | null;
+  location: string | null;
+  scheduled_at: string; // ISO
+  assigned_to: string | null; // user id
+  status: AppointmentStatus;
+  notes: string | null;
+  created_by: string;
+  created_at: string;
+}
+
+export type DocumentType = "prescription" | "report" | "other";
+
+/** Document metadata only. No file bytes are stored in demo mode. */
+export interface DocumentRecord {
+  id: string;
+  family_id: string;
+  elder_id: string;
+  title: string;
+  document_type: DocumentType;
+  document_date: string | null; // YYYY-MM-DD
+  file_name: string;
+  uploaded_by: string;
+  created_at: string;
+}
+

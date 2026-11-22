@@ -12,6 +12,9 @@ import CareTasksPage from "./pages/CareTasksPage";
 import ParentProfilePage from "./pages/ParentProfilePage";
 import ActivityTimelinePage from "./pages/ActivityTimelinePage";
 import FamilyDashboardPage from "./pages/FamilyDashboardPage";
+import MedicationPage from "./pages/MedicationPage";
+import AppointmentsPage from "./pages/AppointmentsPage";
+import DocumentVaultPage from "./pages/DocumentVaultPage";
 import RequireAuth from "./routes/RequireAuth";
 
 export default function App() {
@@ -37,6 +40,9 @@ export default function App() {
         <Route path="/app/family/members" element={<FamilyMembersPage />} />
         <Route path="/app/family/profile" element={<ParentProfilePage />} />
         <Route path="/app/family/timeline" element={<ActivityTimelinePage />} />
+        <Route path="/app/family/medication" element={<MedicationPage />} />
+        <Route path="/app/family/appointments" element={<AppointmentsPage />} />
+        <Route path="/app/family/documents" element={<DocumentVaultPage />} />
       </Route>
 
       <Route element={<RequireAuth roles={["caregiver"]} />}>

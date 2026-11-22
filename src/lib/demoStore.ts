@@ -1,12 +1,20 @@
 import type {
   ActivityEvent,
+  Appointment,
+  AppointmentStatus,
   CareTask,
   CareTaskCategory,
   CareTaskPriority,
+  CaregiverAssistance,
+  DocumentRecord,
+  DocumentType,
   ElderProfile,
   Family,
   FamilyMember,
   Invitation,
+  Medication,
+  MedicationEvent,
+  ParentConfirmation,
   Profile,
   Role,
 } from "./types";
@@ -15,8 +23,10 @@ import type {
 // localStorage. They stay on this device and are NOT secure. Real accounts use Supabase Auth.
 // Invitation codes in this store are also local and NOT secure: anyone with access to this
 // browser's localStorage can read them. Real invitations must be issued by the backend.
+// Medication, appointment and document data is also stored unencrypted in this browser's
+// localStorage in demo mode. Do not enter real health information into demo mode.
 
-export const DEMO_STORE_VERSION = 2;
+export const DEMO_STORE_VERSION = 3;
 const STORAGE_KEY = "nanus-demo-v1";
 const MIN_PASSWORD_LENGTH = 6;
 const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -41,6 +51,10 @@ interface DemoStore {
   care_tasks: CareTask[];
   invitations: Invitation[];
   activity_events: ActivityEvent[];
+  medications: Medication[];
+  medication_events: MedicationEvent[];
+  appointments: Appointment[];
+  document_records: DocumentRecord[];
   session_user_id: string | null;
 }
 
@@ -48,6 +62,9 @@ interface DemoStore {
 export interface TaskView extends CareTask {
   is_overdue: boolean;
 }
+
+/** An appointment plus its derived past flag (never stored). */
+export type AppointmentView = Appointment & { is_past: boolean };
 
 /** A family member joined with the profile fields the members page needs. */
 export type MemberView = FamilyMember & { full_name: string; email: string };
@@ -62,6 +79,10 @@ function emptyStore(): DemoStore {
     care_tasks: [],
     invitations: [],
     activity_events: [],
+    medications: [],
+    medication_events: [],
+    appointments: [],
+    document_records: [],
     session_user_id: null,
   };
 }
@@ -73,7 +94,7 @@ function readStore(): DemoStore {
   try {
     const parsed = JSON.parse(raw) as Partial<DemoStore>;
     // Version 1 data is migrated in place (new arrays default to []). Any other version is unknown, so start clean.
-    if (parsed.version !== 1 && parsed.version !== DEMO_STORE_VERSION) return emptyStore();
+    if (parsed.version !== 1 && parsed.version !== 2 && parsed.version !== DEMO_STORE_VERSION) return emptyStore();
     return {
       version: DEMO_STORE_VERSION,
       users: parsed.users ?? [],
@@ -83,6 +104,10 @@ function readStore(): DemoStore {
       care_tasks: parsed.care_tasks ?? [],
       invitations: parsed.invitations ?? [],
       activity_events: parsed.activity_events ?? [],
+      medications: parsed.medications ?? [],
+      medication_events: parsed.medication_events ?? [],
+      appointments: parsed.appointments ?? [],
+      document_records: parsed.document_records ?? [],
       session_user_id: parsed.session_user_id ?? null,
     };
   } catch {
@@ -550,4 +575,420 @@ export function addActivity({
 export function listActivity(familyId: string): ActivityEvent[] {
   const store = readStore();
   return store.activity_events.filter((e) => e.family_id === familyId).reverse();
+}
+
+// ---- Shared helpers (Phase 3) ----
+
+const HH_MM_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/** Trims text and turns empty input into null. */
+function textOrNull(value: string | null | undefined): string | null {
+  const clean = value?.trim();
+  return clean ? clean : null;
+}
+
+/** Parses a date/time input to ISO, or returns null when it is not a valid date. */
+function toIsoOrNull(value: string): string | null {
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? null : new Date(parsed).toISOString();
+}
+
+// ---- Medications ----
+
+export function createMedication({
+  familyId,
+  elderId,
+  actorId,
+  name,
+  instructions,
+  frequency,
+  scheduledTimes,
+  startDate,
+  endDate = null,
+  prescriber = null,
+  refillDate = null,
+  refillResponsible = null,
+  notes = null,
+}: {
+  familyId: string;
+  elderId: string;
+  actorId: string;
+  name: string;
+  instructions: string;
+  frequency: string;
+  scheduledTimes: string[];
+  startDate: string;
+  endDate?: string | null;
+  prescriber?: string | null;
+  refillDate?: string | null;
+  refillResponsible?: string | null;
+  notes?: string | null;
+}): Medication {
+  const cleanName = name.trim();
+  if (!cleanName) {
+    throw new Error("Medicine name is required.");
+  }
+  const times = scheduledTimes.map((t) => t.trim()).filter((t) => t !== "");
+  if (times.length === 0) {
+    throw new Error("Enter at least one scheduled time.");
+  }
+  if (!times.every((t) => HH_MM_PATTERN.test(t))) {
+    throw new Error("Enter times as HH:MM.");
+  }
+  const cleanEnd = textOrNull(endDate);
+  // YYYY-MM-DD strings compare correctly as plain text.
+  if (cleanEnd && cleanEnd < startDate) {
+    throw new Error("End date must be on or after the start date.");
+  }
+
+  const store = readStore();
+  const medication: Medication = {
+    id: crypto.randomUUID(),
+    family_id: familyId,
+    elder_id: elderId,
+    name: cleanName,
+    instructions: instructions.trim(),
+    frequency: frequency.trim(),
+    scheduled_times: Array.from(new Set(times)).sort(),
+    start_date: startDate,
+    end_date: cleanEnd,
+    prescriber: textOrNull(prescriber),
+    refill_date: textOrNull(refillDate),
+    refill_responsible: refillResponsible || null,
+    notes: textOrNull(notes),
+    status: "active",
+    created_by: actorId,
+    created_at: new Date().toISOString(),
+  };
+  store.medications.push(medication);
+  writeStore(store);
+
+  addActivity({
+    familyId,
+    actorId,
+    action: "medication.created",
+    entityType: "medication",
+    entityId: medication.id,
+    message: `Added medicine "${cleanName}".`,
+  });
+  return medication;
+}
+
+/** Lists a family's medications sorted by name. */
+export function listMedications(familyId: string): Medication[] {
+  const store = readStore();
+  return store.medications
+    .filter((m) => m.family_id === familyId)
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function stopMedication(medicationId: string, actorId: string): Medication {
+  const store = readStore();
+  const medication = store.medications.find((m) => m.id === medicationId);
+  if (!medication) {
+    throw new Error("Medication not found.");
+  }
+  if (medication.status === "stopped") {
+    return medication; // already stopped: nothing to change, no duplicate activity
+  }
+
+  medication.status = "stopped";
+  writeStore(store);
+
+  addActivity({
+    familyId: medication.family_id,
+    actorId,
+    action: "medication.stopped",
+    entityType: "medication",
+    entityId: medication.id,
+    message: `Stopped medicine "${medication.name}".`,
+  });
+  return medication;
+}
+
+/** Finds the event for one dose (medication + scheduled time), or creates it with empty fields. */
+function findOrCreateMedicationEvent(
+  store: DemoStore,
+  medicationId: string,
+  familyId: string,
+  scheduledAt: string,
+): MedicationEvent {
+  let event = store.medication_events.find(
+    (e) => e.medication_id === medicationId && e.scheduled_at === scheduledAt,
+  );
+  if (!event) {
+    event = {
+      id: crypto.randomUUID(),
+      medication_id: medicationId,
+      family_id: familyId,
+      scheduled_at: scheduledAt,
+      parent_confirmation: null,
+      parent_confirmed_at: null,
+      caregiver_assistance: null,
+      caregiver_user_id: null,
+      caregiver_recorded_at: null,
+      notes: null,
+    };
+    store.medication_events.push(event);
+  }
+  return event;
+}
+
+function requireMedication(store: DemoStore, medicationId: string, familyId: string): Medication {
+  const medication = store.medications.find((m) => m.id === medicationId && m.family_id === familyId);
+  if (!medication) {
+    throw new Error("Medication not found.");
+  }
+  return medication;
+}
+
+/**
+ * Records what the parent confirmed for one dose. Writes only parent_confirmation and
+ * parent_confirmed_at; caregiver fields are never touched.
+ */
+export function recordParentConfirmation({
+  medicationId,
+  familyId,
+  scheduledAt,
+  actorId,
+  status,
+}: {
+  medicationId: string;
+  familyId: string;
+  scheduledAt: string;
+  actorId: string;
+  status: ParentConfirmation;
+}): MedicationEvent {
+  const store = readStore();
+  const medication = requireMedication(store, medicationId, familyId);
+  const iso = toIsoOrNull(scheduledAt);
+  if (!iso) {
+    throw new Error("Enter a valid date and time.");
+  }
+
+  const event = findOrCreateMedicationEvent(store, medicationId, familyId, iso);
+  event.parent_confirmation = status;
+  event.parent_confirmed_at = new Date().toISOString();
+  writeStore(store);
+
+  addActivity({
+    familyId,
+    actorId,
+    action: "medication.parent_confirmed",
+    entityType: "medication_event",
+    entityId: event.id,
+    message: `Parent confirmed "${medication.name}" as ${status.replace("_", " ")}.`,
+  });
+  return event;
+}
+
+/**
+ * Records caregiver assistance for one dose. Writes only caregiver_assistance,
+ * caregiver_user_id, caregiver_recorded_at and notes; parent_confirmation is never set.
+ */
+export function recordCaregiverAssistance({
+  medicationId,
+  familyId,
+  scheduledAt,
+  actorId,
+  assistance,
+  notes = null,
+}: {
+  medicationId: string;
+  familyId: string;
+  scheduledAt: string;
+  actorId: string;
+  assistance: CaregiverAssistance;
+  notes?: string | null;
+}): MedicationEvent {
+  const store = readStore();
+  const medication = requireMedication(store, medicationId, familyId);
+  const iso = toIsoOrNull(scheduledAt);
+  if (!iso) {
+    throw new Error("Enter a valid date and time.");
+  }
+
+  const event = findOrCreateMedicationEvent(store, medicationId, familyId, iso);
+  event.caregiver_assistance = assistance;
+  event.caregiver_user_id = actorId;
+  event.caregiver_recorded_at = new Date().toISOString();
+  event.notes = textOrNull(notes);
+  writeStore(store);
+
+  addActivity({
+    familyId,
+    actorId,
+    action: "medication.caregiver_assisted",
+    entityType: "medication_event",
+    entityId: event.id,
+    message: `Caregiver recorded "${medication.name}" as ${assistance.replace("_", " ")}.`,
+  });
+  return event;
+}
+
+/** Newest scheduled dose first. */
+export function listMedicationEvents(familyId: string): MedicationEvent[] {
+  const store = readStore();
+  return store.medication_events
+    .filter((e) => e.family_id === familyId)
+    .sort((a, b) => Date.parse(b.scheduled_at) - Date.parse(a.scheduled_at));
+}
+
+// ---- Appointments ----
+
+export function createAppointment({
+  familyId,
+  elderId,
+  actorId,
+  title,
+  provider = null,
+  location = null,
+  scheduledAt,
+  assignedTo = null,
+  notes = null,
+}: {
+  familyId: string;
+  elderId: string;
+  actorId: string;
+  title: string;
+  provider?: string | null;
+  location?: string | null;
+  scheduledAt: string;
+  assignedTo?: string | null;
+  notes?: string | null;
+}): Appointment {
+  const cleanTitle = title.trim();
+  if (!cleanTitle) {
+    throw new Error("Appointment title is required.");
+  }
+  const iso = toIsoOrNull(scheduledAt);
+  if (!iso) {
+    throw new Error("Enter a valid date and time.");
+  }
+
+  const store = readStore();
+  const appointment: Appointment = {
+    id: crypto.randomUUID(),
+    family_id: familyId,
+    elder_id: elderId,
+    title: cleanTitle,
+    provider: textOrNull(provider),
+    location: textOrNull(location),
+    scheduled_at: iso,
+    assigned_to: assignedTo || null,
+    status: "scheduled",
+    notes: textOrNull(notes),
+    created_by: actorId,
+    created_at: new Date().toISOString(),
+  };
+  store.appointments.push(appointment);
+  writeStore(store);
+
+  addActivity({
+    familyId,
+    actorId,
+    action: "appointment.created",
+    entityType: "appointment",
+    entityId: appointment.id,
+    message: `Created appointment "${cleanTitle}".`,
+  });
+  return appointment;
+}
+
+/** Lists a family's appointments by scheduled time (earliest first). is_past is derived at read time. */
+export function listAppointments(familyId: string): AppointmentView[] {
+  const store = readStore();
+  const now = Date.now();
+  return store.appointments
+    .filter((a) => a.family_id === familyId)
+    .map((a) => ({ ...a, is_past: Date.parse(a.scheduled_at) < now }))
+    .sort((a, b) => Date.parse(a.scheduled_at) - Date.parse(b.scheduled_at));
+}
+
+export function updateAppointmentStatus(
+  appointmentId: string,
+  actorId: string,
+  status: Extract<AppointmentStatus, "cancelled" | "completed">,
+): Appointment {
+  const store = readStore();
+  const appointment = store.appointments.find((a) => a.id === appointmentId);
+  if (!appointment) {
+    throw new Error("Appointment not found.");
+  }
+  if (appointment.status === status) {
+    return appointment;
+  }
+
+  appointment.status = status;
+  writeStore(store);
+
+  addActivity({
+    familyId: appointment.family_id,
+    actorId,
+    action: `appointment.${status}`,
+    entityType: "appointment",
+    entityId: appointment.id,
+    message: `Marked appointment "${appointment.title}" as ${status}.`,
+  });
+  return appointment;
+}
+
+// ---- Document metadata (no file bytes in demo mode) ----
+
+export function createDocumentRecord({
+  familyId,
+  elderId,
+  actorId,
+  title,
+  documentType,
+  documentDate = null,
+  fileName,
+}: {
+  familyId: string;
+  elderId: string;
+  actorId: string;
+  title: string;
+  documentType: DocumentType;
+  documentDate?: string | null;
+  fileName: string;
+}): DocumentRecord {
+  const cleanTitle = title.trim();
+  if (!cleanTitle) {
+    throw new Error("Document title is required.");
+  }
+  const cleanFile = fileName.trim();
+  if (!cleanFile) {
+    throw new Error("Choose a file name.");
+  }
+
+  const store = readStore();
+  const record: DocumentRecord = {
+    id: crypto.randomUUID(),
+    family_id: familyId,
+    elder_id: elderId,
+    title: cleanTitle,
+    document_type: documentType,
+    document_date: textOrNull(documentDate),
+    file_name: cleanFile,
+    uploaded_by: actorId,
+    created_at: new Date().toISOString(),
+  };
+  store.document_records.push(record);
+  writeStore(store);
+
+  addActivity({
+    familyId,
+    actorId,
+    action: "document.created",
+    entityType: "document",
+    entityId: record.id,
+    message: `Added document "${cleanTitle}".`,
+  });
+  return record;
+}
+
+/** Newest first. Stored in insertion order, so reversing gives exact recency. */
+export function listDocumentRecords(familyId: string): DocumentRecord[] {
+  const store = readStore();
+  return store.document_records.filter((d) => d.family_id === familyId).reverse();
 }
