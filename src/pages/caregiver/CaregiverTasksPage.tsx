@@ -124,9 +124,8 @@ export default function CaregiverTasksPage() {
               {pendingTasks.map((t) => (
                 <div
                   key={t.id}
-                  className={`rounded-2xl border bg-white p-4 sm:p-5 shadow-xs transition-all ${
-                    t.is_overdue ? "border-coral/60 bg-coral/5" : "border-sage/60"
-                  }`}
+                  className={`rounded-2xl border bg-white p-4 sm:p-5 shadow-xs transition-all ${t.is_overdue ? "border-coral/60 bg-coral/5" : "border-sage/60"
+                    }`}
                 >
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div className="space-y-1">

@@ -81,8 +81,8 @@ export default function FamilyDashboardPage() {
     ? latestCheckin.status === "ok"
       ? "Resting comfortably & in good spirits"
       : latestCheckin.status === "need_assistance"
-      ? "Requested assistance"
-      : "Requested family call"
+        ? "Requested assistance"
+        : "Requested family call"
     : "No check-in received today yet";
 
   // 2. Have medicines been confirmed?
@@ -146,9 +146,8 @@ export default function FamilyDashboardPage() {
                   <span>How is my parent?</span>
                 </span>
                 <span
-                  className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                    isParentOk ? "bg-sage/40 text-forest" : "bg-coral/20 text-charcoal"
-                  }`}
+                  className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${isParentOk ? "bg-sage/40 text-forest" : "bg-coral/20 text-charcoal"
+                    }`}
                 >
                   {isParentOk ? "Comfortable & Well" : "Needs Review"}
                 </span>
@@ -169,9 +168,9 @@ export default function FamilyDashboardPage() {
                   <span>
                     {latestCheckin
                       ? `Checked in at ${new Date(latestCheckin.created_at).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}`
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}`
                       : "Awaiting morning check-in"}
                   </span>
                 </span>
@@ -237,11 +236,10 @@ export default function FamilyDashboardPage() {
                   <span>Has the caregiver checked in?</span>
                 </span>
                 <span
-                  className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                    isCaregiverActive
-                      ? "bg-forest/10 text-forest font-bold"
-                      : "bg-ivory border border-sage text-charcoal/70"
-                  }`}
+                  className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${isCaregiverActive
+                    ? "bg-forest/10 text-forest font-bold"
+                    : "bg-ivory border border-sage text-charcoal/70"
+                    }`}
                 >
                   {isCaregiverActive ? "🟢 On Shift Now" : "Shift Scheduled"}
                 </span>
@@ -281,11 +279,10 @@ export default function FamilyDashboardPage() {
                   <span>Does anything need attention?</span>
                 </span>
                 <span
-                  className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                    hasUrgentIssue
-                      ? "bg-coral/20 text-charcoal font-bold"
-                      : "bg-sage/40 text-forest"
-                  }`}
+                  className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${hasUrgentIssue
+                    ? "bg-coral/20 text-charcoal font-bold"
+                    : "bg-sage/40 text-forest"
+                    }`}
                 >
                   {hasUrgentIssue ? `${overdueTasks.length} Attention Item` : "All Clear"}
                 </span>

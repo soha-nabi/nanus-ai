@@ -224,13 +224,12 @@ export default function CaregiverDashboardPage() {
             <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center border-t sm:border-t-0 border-sage/40 pt-2 sm:pt-0">
               <span className="text-xs text-charcoal/60">Shift status</span>
               <span
-                className={`mt-0.5 rounded-full px-3 py-1 text-xs font-bold ${
-                  isCheckedIn
-                    ? "bg-forest text-ivory"
-                    : isCompleted
+                className={`mt-0.5 rounded-full px-3 py-1 text-xs font-bold ${isCheckedIn
+                  ? "bg-forest text-ivory"
+                  : isCompleted
                     ? "bg-sage text-forest"
                     : "bg-coral/20 text-charcoal"
-                }`}
+                  }`}
               >
                 {isCheckedIn ? "Checked In (On Duty)" : isCompleted ? "Shift Completed" : "Scheduled"}
               </span>
@@ -274,18 +273,16 @@ export default function CaregiverDashboardPage() {
 
           {/* STEP 1: Check In */}
           <div
-            className={`rounded-2xl border p-5 transition-all ${
-              isCheckedIn
-                ? "border-forest/40 bg-white"
-                : "border-forest bg-forest/5 shadow-xs"
-            }`}
+            className={`rounded-2xl border p-5 transition-all ${isCheckedIn
+              ? "border-forest/40 bg-white"
+              : "border-forest bg-forest/5 shadow-xs"
+              }`}
           >
             <div className="flex items-start justify-between gap-4">
               <div className="flex items-start gap-3">
                 <div
-                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold ${
-                    isCheckedIn ? "bg-forest text-ivory" : "bg-forest/20 text-forest"
-                  }`}
+                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold ${isCheckedIn ? "bg-forest text-ivory" : "bg-forest/20 text-forest"
+                    }`}
                 >
                   {isCheckedIn ? <CheckCircle2 size={18} /> : "1"}
                 </div>
@@ -365,9 +362,8 @@ export default function CaregiverDashboardPage() {
           <div className="rounded-2xl border border-sage/60 bg-white p-5 shadow-xs">
             <div className="flex items-start gap-3">
               <div
-                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold ${
-                  openTasks.length === 0 ? "bg-forest text-ivory" : "bg-forest/20 text-forest"
-                }`}
+                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold ${openTasks.length === 0 ? "bg-forest text-ivory" : "bg-forest/20 text-forest"
+                  }`}
               >
                 {openTasks.length === 0 ? <CheckCircle2 size={18} /> : "3"}
               </div>
@@ -485,11 +481,10 @@ export default function CaregiverDashboardPage() {
                             <button
                               type="button"
                               onClick={() => handleRecordAssistance(med.id, doseTime, "assisted")}
-                              className={`flex-1 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                                currentAssistance === "assisted"
-                                  ? "bg-forest text-ivory font-bold"
-                                  : "border border-sage/80 bg-white text-charcoal hover:bg-forest/10"
-                              }`}
+                              className={`flex-1 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${currentAssistance === "assisted"
+                                ? "bg-forest text-ivory font-bold"
+                                : "border border-sage/80 bg-white text-charcoal hover:bg-forest/10"
+                                }`}
                             >
                               Assisted
                             </button>
@@ -572,15 +567,13 @@ export default function CaregiverDashboardPage() {
 
           {/* STEP 6: Check Out */}
           <div
-            className={`rounded-2xl border p-5 transition-all ${
-              isCompleted ? "border-sage bg-sage/10" : "border-sage/60 bg-white shadow-xs"
-            }`}
+            className={`rounded-2xl border p-5 transition-all ${isCompleted ? "border-sage bg-sage/10" : "border-sage/60 bg-white shadow-xs"
+              }`}
           >
             <div className="flex items-start gap-3">
               <div
-                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold ${
-                  isCompleted ? "bg-forest text-ivory" : "bg-forest/20 text-forest"
-                }`}
+                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold ${isCompleted ? "bg-forest text-ivory" : "bg-forest/20 text-forest"
+                  }`}
               >
                 {isCompleted ? <CheckCircle2 size={18} /> : "6"}
               </div>

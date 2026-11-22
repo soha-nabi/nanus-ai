@@ -342,6 +342,64 @@ export default function LandingPage() {
           </div>
         </section>
 
+        {/* EMOTIONAL STORY HIGHLIGHT SECTION */}
+        <section className="border-b border-sage/60 py-16 sm:py-20 bg-ivory/60">
+          <div className="mx-auto max-w-5xl px-4 sm:px-6">
+            <div className="overflow-hidden rounded-3xl border border-sage/70 bg-white shadow-lg">
+              <div className="grid grid-cols-1 md:grid-cols-2 items-center">
+                {/* Image Side */}
+                <div className="relative aspect-[4/3] md:aspect-auto md:h-full min-h-[300px] overflow-hidden bg-forest/10">
+                  <img
+                    src="https://images.unsplash.com/photo-1544027993-37dbfe43562a?auto=format&fit=crop&w=1000&q=80"
+                    alt="Wrinkled elder hands holding a warm cup of morning tea"
+                    className="h-full w-full object-cover filter brightness-[0.98]"
+                    loading="lazy"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-charcoal/70 via-transparent to-transparent flex items-end p-6">
+                    <p className="text-xs font-semibold text-ivory/90">
+                      &ldquo;Haan beta, sab theek hai.&rdquo; — The tender lie every distant parent tells.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Narrative Side */}
+                <div className="p-8 sm:p-12 space-y-5">
+                  <div className="inline-flex items-center gap-2 rounded-full bg-forest/10 px-3 py-1 text-xs font-semibold text-forest">
+                    <span>Our Origin & Purpose</span>
+                  </div>
+
+                  <h2 className="font-serif text-2xl sm:text-3xl font-bold text-forest leading-snug">
+                    A daughter in Bengaluru. A father in Jaipur. 500 miles connected by love.
+                  </h2>
+
+                  <p className="text-sm sm:text-base leading-relaxed text-charcoal/80">
+                    When children move to different cities for careers, care becomes anxious guesswork.
+                    Parents hide joint pain and missed doses so we don&apos;t worry at work.
+                    Nanu&apos;s AI was born from this love—not to surveil our parents with cameras,
+                    but to give families shared visibility, autonomy, and quiet peace of mind.
+                  </p>
+
+                  <div className="pt-2 flex flex-wrap items-center gap-4 text-xs sm:text-sm font-semibold">
+                    <Link
+                      to="/about"
+                      className="inline-flex items-center gap-2 rounded-xl bg-forest px-5 py-2.5 text-ivory hover:bg-forest/90 transition-all shadow-xs"
+                    >
+                      <span>Read Our Story</span>
+                      <span>→</span>
+                    </Link>
+                    <Link
+                      to="/signup"
+                      className="text-forest hover:underline"
+                    >
+                      Start Free Family Workspace
+                    </Link>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
         {/* SECTION 2: HOW NANU'S WORKS */}
         <section className="border-b border-sage/60 py-16 sm:py-20 bg-white">
           <div className="mx-auto max-w-5xl px-4 sm:px-6">
