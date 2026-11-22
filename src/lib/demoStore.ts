@@ -2,6 +2,7 @@ import type {
   ActivityEvent,
   Appointment,
   AppointmentStatus,
+  CareHandover,
   CareTask,
   CareTaskCategory,
   CareTaskPriority,
@@ -15,6 +16,7 @@ import type {
   ElderProfile,
   Family,
   FamilyMember,
+  HandoverSummary,
   Invitation,
   Medication,
   MedicationEvent,
@@ -35,7 +37,7 @@ import type {
 // Medication, appointment and document data is also stored unencrypted in this browser's
 // localStorage in demo mode. Do not enter real health information into demo mode.
 
-export const DEMO_STORE_VERSION = 5;
+export const DEMO_STORE_VERSION = 6;
 const STORAGE_KEY = "nanus-demo-v1";
 const MIN_PASSWORD_LENGTH = 6;
 const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -70,6 +72,7 @@ interface DemoStore {
   notifications: Notification[];
   notification_preferences: NotificationPreference[];
   reminder_rules: ReminderRule[];
+  care_handovers: CareHandover[];
   session_user_id: string | null;
 }
 
@@ -104,6 +107,7 @@ function emptyStore(): DemoStore {
     notifications: [],
     notification_preferences: [],
     reminder_rules: [],
+    care_handovers: [],
     session_user_id: null,
   };
 }
@@ -115,7 +119,7 @@ function readStore(): DemoStore {
   try {
     const parsed = JSON.parse(raw) as Partial<DemoStore>;
     // Version 1 data is migrated in place (new arrays default to []). Any other version is unknown, so start clean.
-    if (![1, 2, 3, 4, DEMO_STORE_VERSION].includes(parsed.version ?? -1)) return emptyStore();
+    if (![1, 2, 3, 4, 5, DEMO_STORE_VERSION].includes(parsed.version ?? -1)) return emptyStore();
     return {
       version: DEMO_STORE_VERSION,
       users: parsed.users ?? [],
@@ -135,6 +139,7 @@ function readStore(): DemoStore {
       notifications: parsed.notifications ?? [],
       notification_preferences: parsed.notification_preferences ?? [],
       reminder_rules: parsed.reminder_rules ?? [],
+      care_handovers: parsed.care_handovers ?? [],
       session_user_id: parsed.session_user_id ?? null,
     };
   } catch {
@@ -1623,4 +1628,268 @@ export function upsertReminderRule({
   });
   return rule;
 }
+
+// Demo mode: runs only when the app calls it, not on a server schedule. A missed check-in is never treated as a medical emergency.
+export function runAutomationPass(
+  familyId: string,
+  now: Date,
+): { created: number; skipped_duplicates: number; rules_applied: string[] } {
+  const nowMs = now.getTime();
+  const MINUTE = 60 * 1000;
+  const HOUR = 60 * MINUTE;
+  const DAY = 24 * HOUR;
+  const pad = (n: number): string => String(n).padStart(2, "0");
+  const todayLocal = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+
+  const ownerId =
+    listMembers(familyId).find((m) => m.role === "owner" && m.status === "active")?.user_id ?? null;
+
+  let created = 0;
+  let skipped = 0;
+
+  // Skips when (user, dedupe key) already exists; otherwise asks createNotification.
+  const notifyOnce = (
+    userId: string | null,
+    eventType: string,
+    title: string,
+    message: string,
+    dedupeKey: string,
+  ): void => {
+    if (!userId) return;
+    const exists = readStore().notifications.some((n) => n.user_id === userId && n.dedupe_key === dedupeKey);
+    if (exists) {
+      skipped += 1;
+      return;
+    }
+    const result = createNotification({ familyId, userId, eventType, title, message, dedupeKey });
+    if (result !== null) created += 1;
+  };
+
+  // Rule A: overdue open tasks.
+  for (const task of listTasks(familyId)) {
+    if (task.status !== "open" || task.due_at === null || Date.parse(task.due_at) >= nowMs) continue;
+    notifyOnce(
+      task.assigned_to ?? ownerId,
+      "task_overdue",
+      "Task overdue",
+      `${task.title} is past its due time.`,
+      `task_overdue:${task.id}:${task.due_at.slice(0, 10)}`,
+    );
+  }
+
+  // Rule B: scheduled shifts with no check-in after their scheduled end.
+  for (const shift of listShifts(familyId)) {
+    if (shift.status !== "scheduled" || shift.check_in_at !== null) continue;
+    if (Date.parse(shift.scheduled_end) >= nowMs) continue;
+    const title = "Shift check-in not recorded";
+    const message = "No check-in was recorded for a scheduled shift.";
+    notifyOnce(shift.caregiver_user_id, "shift_missed", title, message, `shift_missed:${shift.id}`);
+    if (nowMs - Date.parse(shift.scheduled_start) > HOUR) {
+      notifyOnce(ownerId, "shift_missed", title, message, `shift_missed_owner:${shift.id}`);
+    }
+  }
+
+  // Rule C: active medicine doses from today that are more than 30 minutes past with no parent confirmation.
+  const medicationEvents = listMedicationEvents(familyId);
+  for (const medication of listMedications(familyId)) {
+    if (medication.status !== "active") continue;
+    if (medication.start_date > todayLocal) continue;
+    if (medication.end_date !== null && medication.end_date < todayLocal) continue;
+    const recipient = medication.refill_responsible ?? ownerId;
+    for (const time of medication.scheduled_times) {
+      const [hours, minutes] = time.split(":").map(Number);
+      const slot = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes);
+      const slotMs = slot.getTime();
+      if (nowMs - slotMs <= 30 * MINUTE) continue;
+      const slotIso = slot.toISOString();
+      const event = medicationEvents.find((e) => e.medication_id === medication.id && e.scheduled_at === slotIso);
+      if (event?.parent_confirmation) continue;
+      const title = "Medicine confirmation pending";
+      const message = "No confirmation has been recorded yet. This is not a record that the medicine was missed or taken.";
+      notifyOnce(recipient, "medication_unconfirmed", title, message, `medication_unconfirmed:${medication.id}:${slotIso}:parent`);
+      if (nowMs - slotMs > 120 * MINUTE) {
+        notifyOnce(ownerId, "medication_unconfirmed", title, message, `medication_unconfirmed:${medication.id}:${slotIso}:escalated`);
+      }
+    }
+  }
+
+  // Rule D: scheduled appointments within the next 24 hours.
+  for (const appointment of listAppointments(familyId)) {
+    if (appointment.status !== "scheduled") continue;
+    const at = Date.parse(appointment.scheduled_at);
+    if (at < nowMs || at > nowMs + DAY) continue;
+    notifyOnce(
+      appointment.assigned_to ?? ownerId,
+      "appointment_upcoming",
+      "Appointment in the next 24 hours",
+      `${appointment.title} is coming up.`,
+      `appointment_upcoming:${appointment.id}:${appointment.scheduled_at.slice(0, 10)}`,
+    );
+  }
+
+  return {
+    created,
+    skipped_duplicates: skipped,
+    rules_applied: [
+      "task_overdue",
+      "shift_missed",
+      "medication_unconfirmed",
+      "appointment_upcoming",
+      "wellness_missed: not implemented in demo data",
+    ],
+  };
+}
+
+// ---- Care handover (Phase 5) ----
+// The handover summary is built only from stored records. Nothing is invented or inferred.
+
+function isFamilyOwnerOrMember(store: DemoStore, familyId: string, userId: string): boolean {
+  return store.family_members.some(
+    (m) =>
+      m.family_id === familyId &&
+      m.user_id === userId &&
+      (m.role === "owner" || m.role === "family_member") &&
+      m.status === "active",
+  );
+}
+
+/**
+ * Builds a handover summary from stored records only. Only a family owner or family member,
+ * or a caregiver with an active assignment for this elder, may generate one.
+ */
+export function generateCareHandover({
+  familyId,
+  elderId,
+  fromUserId,
+  toUserId,
+}: {
+  familyId: string;
+  elderId: string;
+  fromUserId: string;
+  toUserId: string | null;
+}): CareHandover {
+  const store = readStore();
+  const elder = store.elder_profiles.find((e) => e.id === elderId && e.family_id === familyId);
+  if (!elder) {
+    throw new Error("Elder profile not found.");
+  }
+  const allowed =
+    isFamilyOwnerOrMember(store, familyId, fromUserId) ||
+    listAssignedElders(fromUserId).some((e) => e.id === elderId);
+  if (!allowed) {
+    throw new Error("Only a family member or an assigned caregiver can create a handover.");
+  }
+
+  const nowMs = Date.now();
+  const generatedAt = new Date(nowMs).toISOString();
+
+  const openTasks = store.care_tasks.filter((t) => t.family_id === familyId && t.status === "open");
+  const pendingTasks = openTasks.map((t) => ({
+    id: t.id,
+    title: t.title,
+    overdue: t.due_at !== null && Date.parse(t.due_at) < nowMs,
+  }));
+
+  const medicationConfirmations = store.medication_events
+    .filter((e) => e.family_id === familyId)
+    .map((e) => ({
+      medicine: store.medications.find((m) => m.id === e.medication_id)?.name ?? "",
+      scheduled_at: e.scheduled_at,
+      parent_confirmation: e.parent_confirmation,
+      caregiver_assistance: e.caregiver_assistance,
+    }));
+
+  const summary: HandoverSummary = {
+    generated_at: generatedAt,
+    completed_tasks: store.care_tasks
+      .filter((t) => t.family_id === familyId && t.status === "completed")
+      .map((t) => ({ id: t.id, title: t.title })),
+    medication_confirmations: medicationConfirmations,
+    pending_tasks: pendingTasks,
+    upcoming_appointments: store.appointments
+      .filter((a) => a.family_id === familyId && a.status === "scheduled" && Date.parse(a.scheduled_at) > nowMs)
+      .map((a) => ({ id: a.id, title: a.title, scheduled_at: a.scheduled_at })),
+    caregiver_notes: store.caregiver_activity
+      .filter((a) => a.family_id === familyId)
+      .map((a) => a.description),
+    unresolved_issues: [
+      ...pendingTasks.filter((t) => t.overdue).map((t) => `Overdue task: ${t.title}`),
+      ...medicationConfirmations
+        .filter((c) => c.parent_confirmation === null)
+        .map((c) => `No parent confirmation for ${c.medicine} at ${c.scheduled_at}`),
+      ...store.caregiver_shifts
+        .filter((s) => s.family_id === familyId && s.status === "missed")
+        .map((s) => `Missed shift scheduled to start at ${s.scheduled_start}`),
+    ],
+  };
+
+  const handover: CareHandover = {
+    id: crypto.randomUUID(),
+    family_id: familyId,
+    elder_id: elderId,
+    from_user_id: fromUserId,
+    to_user_id: toUserId,
+    summary_json: summary,
+    status: "sent",
+    acknowledged_by: null,
+    acknowledged_at: null,
+    created_at: generatedAt,
+  };
+  store.care_handovers.push(handover);
+  writeStore(store);
+
+  addActivity({
+    familyId,
+    actorId: fromUserId,
+    action: "handover.created",
+    entityType: "handover",
+    entityId: handover.id,
+    message: "Created a care handover.",
+  });
+  return handover;
+}
+
+/** Acknowledges a handover. Allowed for the next caregiver or a family owner/member. */
+export function acknowledgeHandover(handoverId: string, actorId: string): CareHandover {
+  const store = readStore();
+  const handover = store.care_handovers.find((h) => h.id === handoverId);
+  if (!handover) {
+    throw new Error("Handover not found.");
+  }
+  const allowed =
+    actorId === handover.to_user_id || isFamilyOwnerOrMember(store, handover.family_id, actorId);
+  if (!allowed) {
+    throw new Error("Only a family member or the next caregiver can acknowledge this handover.");
+  }
+  if (handover.status === "acknowledged") {
+    return handover; // already acknowledged: nothing to change, no duplicate activity
+  }
+
+  handover.status = "acknowledged";
+  handover.acknowledged_by = actorId;
+  handover.acknowledged_at = new Date().toISOString();
+  writeStore(store);
+
+  addActivity({
+    familyId: handover.family_id,
+    actorId,
+    action: "handover.acknowledged",
+    entityType: "handover",
+    entityId: handover.id,
+    message: "Acknowledged a care handover.",
+  });
+  return handover;
+}
+
+/** Lists a family's handovers, newest created first. */
+export function listHandovers(familyId: string): CareHandover[] {
+  const store = readStore();
+  // Reverse first so equal timestamps keep newest-inserted first (stable sort).
+  return store.care_handovers
+    .filter((h) => h.family_id === familyId)
+    .reverse()
+    .sort((a, b) => b.created_at.localeCompare(a.created_at));
+}
+
+
 
