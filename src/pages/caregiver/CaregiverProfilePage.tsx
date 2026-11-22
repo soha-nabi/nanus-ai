@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { useAuth } from "../../features/auth/AuthContext";
+import DemoRoleSwitcher from "../../components/DemoRoleSwitcher";
+import CaregiverNav from "../../components/CaregiverNav";
 import {
   getCaregiverProfile,
   getFamily,
@@ -130,13 +132,19 @@ export default function CaregiverProfilePage() {
   const approvalStatus = profile?.family_approval ?? "pending";
 
   return (
-    <main className="min-h-screen bg-ivory px-4 py-10 text-charcoal">
-      <div className="mx-auto max-w-3xl space-y-10">
+    <div className="min-h-screen bg-ivory text-charcoal">
+      <DemoRoleSwitcher />
+      <CaregiverNav />
+
+      <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6 space-y-8">
         <header>
-          <h1 className="text-3xl font-bold text-forest sm:text-4xl">My profile</h1>
+          <p className="text-xs font-semibold uppercase tracking-wider text-forest/70">
+            Caregiver Profile & Credentials
+          </p>
+          <h1 className="mt-1 text-2xl sm:text-3xl font-bold text-forest">My Profile</h1>
           {isDemo && (
-            <p className="mt-4 rounded-lg border border-sage bg-white p-4 text-base">
-              Demo mode — data is stored only in this browser.
+            <p className="mt-2 text-xs text-charcoal/60">
+              Demo mode — credentials and contact details stored for this simulation.
             </p>
           )}
         </header>
@@ -255,7 +263,7 @@ export default function CaregiverProfilePage() {
             </form>
           )}
         </section>
-      </div>
-    </main>
+      </main>
+    </div>
   );
 }

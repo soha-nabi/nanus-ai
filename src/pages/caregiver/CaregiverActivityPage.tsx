@@ -1,10 +1,9 @@
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { useAuth } from "../../features/auth/AuthContext";
 import DemoRoleSwitcher from "../../components/DemoRoleSwitcher";
-import BrandLogo from "../../components/BrandLogo";
+import CaregiverNav from "../../components/CaregiverNav";
 import {
   addCaregiverActivity,
   getFamily,
@@ -202,37 +201,7 @@ export default function CaregiverActivityPage() {
   return (
     <div className="min-h-screen bg-ivory text-charcoal">
       <DemoRoleSwitcher />
-
-      <header className="border-b border-sage/60 bg-white/80">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3 sm:px-6">
-          <div className="flex items-center gap-3">
-            <Link to="/app/caregiver">
-              <BrandLogo size="sm" />
-            </Link>
-            <span className="rounded-full bg-sage/30 px-2.5 py-0.5 text-xs font-semibold text-charcoal">
-              Caregiver Workspace
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Link to="/app/caregiver" className="text-xs sm:text-sm font-medium text-forest hover:underline px-2 py-1">
-              Dashboard
-            </Link>
-            <Link to="/app/caregiver/shifts" className="text-xs sm:text-sm font-medium text-forest hover:underline px-2 py-1">
-              Shifts
-            </Link>
-            <Link to="/app/caregiver/tasks" className="text-xs sm:text-sm font-medium text-forest hover:underline px-2 py-1">
-              Tasks
-            </Link>
-            <Link to="/app/caregiver/activity" className="text-xs sm:text-sm font-semibold text-forest underline px-2 py-1">
-              Activity & Expenses
-            </Link>
-            <Link to="/app/caregiver/handover" className="text-xs sm:text-sm font-medium text-forest hover:underline px-2 py-1">
-              Handover
-            </Link>
-          </div>
-        </div>
-      </header>
+      <CaregiverNav />
 
       <main className="mx-auto max-w-4xl px-4 py-8 sm:px-6 space-y-10">
         <header className="border-b border-sage/40 pb-4">

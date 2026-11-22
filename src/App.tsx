@@ -17,6 +17,9 @@ import MedicationPage from "./pages/MedicationPage";
 import AppointmentsPage from "./pages/AppointmentsPage";
 import DocumentVaultPage from "./pages/DocumentVaultPage";
 import CaregiverManagementPage from "./pages/CaregiverManagementPage";
+import ParentHealthHubPage from "./pages/family/ParentHealthHubPage";
+import FamilyUpdatesHubPage from "./pages/family/FamilyUpdatesHubPage";
+import FamilyMorePage from "./pages/family/FamilyMorePage";
 import CaregiverDashboardPage from "./pages/caregiver/CaregiverDashboardPage";
 import CaregiverShiftsPage from "./pages/caregiver/CaregiverShiftsPage";
 import CaregiverTasksPage from "./pages/caregiver/CaregiverTasksPage";
@@ -46,10 +49,10 @@ export default function App() {
       </Route>
 
       <Route element={<RequireAuth roles={["owner", "family_member"]} />}>
-        <Route
-          path="/app/family"
-          element={<FamilyDashboardPage />}
-        />
+        <Route path="/app/family" element={<FamilyDashboardPage />} />
+        <Route path="/app/family/health" element={<ParentHealthHubPage />} />
+        <Route path="/app/family/updates" element={<FamilyUpdatesHubPage />} />
+        <Route path="/app/family/more" element={<FamilyMorePage />} />
         <Route path="/app/family/pulse" element={<FamilyCarePulsePage />} />
         <Route path="/app/family/journal" element={<FamilyJournalPage />} />
         <Route path="/app/family/tasks" element={<CareTasksPage />} />
@@ -80,6 +83,8 @@ export default function App() {
         <Route path="/app/elder/checkin" element={<ElderCheckinPage />} />
         <Route path="/app/elder/emergency" element={<ElderEmergencyPage />} />
         <Route path="/app/elder/medicines" element={<ElderMedicinePage />} />
+        <Route path="/app/elder/meds" element={<Navigate to="/app/elder/medicines" replace />} />
+        <Route path="/app/elder/help" element={<Navigate to="/app/elder/emergency" replace />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />
