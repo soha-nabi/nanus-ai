@@ -2142,4 +2142,28 @@ export function setElderLanguage(userId: string, language: LanguageCode): ElderP
   return preferences;
 }
 
+/**
+ * The elder's own confirmation. Caregiver assistance is recorded separately and never sets this.
+ * Only the elder member of the family may call it.
+ */
+export function recordElderMedicineConfirmation({
+  medicationId,
+  familyId,
+  scheduledAt,
+  actorId,
+  status,
+}: {
+  medicationId: string;
+  familyId: string;
+  scheduledAt: string;
+  actorId: string;
+  status: ParentConfirmation;
+}): MedicationEvent {
+  const store = readStore();
+  if (!isElderMember(store, familyId, actorId)) {
+    throw new Error("Only the elder can confirm their own medicines.");
+  }
+  return recordParentConfirmation({ medicationId, familyId, scheduledAt, actorId, status });
+}
+
 
