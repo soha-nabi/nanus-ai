@@ -219,3 +219,65 @@ export interface CaregiverActivityLog {
 }
 
 
+export type NotificationDeliveryStatus = "delivered" | "failed" | "pending";
+export type ReminderKind = "medication_unconfirmed" | "shift_missed" | "task_overdue" | "appointment_upcoming" | "wellness_missed";
+export type CareHandoverStatus = "draft" | "sent" | "acknowledged";
+
+export interface Notification {
+  id: string;
+  family_id: string;
+  user_id: string;
+  event_type: string;
+  title: string;
+  message: string;
+  dedupe_key: string;
+  channel: "in_app";
+  delivery_status: NotificationDeliveryStatus;
+  read_at: string | null;
+  created_at: string;
+}
+
+export interface NotificationPreference {
+  id: string;
+  user_id: string;
+  event_type: string;
+  enabled: boolean;
+}
+
+export interface HandoverSummary {
+  generated_at: string;
+  completed_tasks: { id: string; title: string }[];
+  medication_confirmations: {
+    medicine: string;
+    scheduled_at: string;
+    parent_confirmation: string | null;
+    caregiver_assistance: string | null;
+  }[];
+  pending_tasks: { id: string; title: string; overdue: boolean }[];
+  upcoming_appointments: { id: string; title: string; scheduled_at: string }[];
+  caregiver_notes: string[];
+  unresolved_issues: string[];
+}
+
+export interface CareHandover {
+  id: string;
+  family_id: string;
+  elder_id: string;
+  from_user_id: string;
+  to_user_id: string | null;
+  summary_json: HandoverSummary;
+  status: CareHandoverStatus;
+  acknowledged_by: string | null;
+  acknowledged_at: string | null;
+  created_at: string;
+}
+
+export interface ReminderRule {
+  id: string;
+  family_id: string;
+  kind: ReminderKind;
+  minutes_before_or_after: number;
+  escalate_to_user_id: string | null;
+  enabled: boolean;
+}
+

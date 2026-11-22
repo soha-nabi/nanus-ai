@@ -18,8 +18,12 @@ import type {
   Invitation,
   Medication,
   MedicationEvent,
+  Notification,
+  NotificationPreference,
   ParentConfirmation,
   Profile,
+  ReminderKind,
+  ReminderRule,
   Role,
   VerificationStatus,
 } from "./types";
@@ -31,7 +35,7 @@ import type {
 // Medication, appointment and document data is also stored unencrypted in this browser's
 // localStorage in demo mode. Do not enter real health information into demo mode.
 
-export const DEMO_STORE_VERSION = 4;
+export const DEMO_STORE_VERSION = 5;
 const STORAGE_KEY = "nanus-demo-v1";
 const MIN_PASSWORD_LENGTH = 6;
 const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -63,6 +67,9 @@ interface DemoStore {
   caregiver_profiles: CaregiverProfile[];
   caregiver_shifts: CaregiverShift[];
   caregiver_activity: CaregiverActivityLog[];
+  notifications: Notification[];
+  notification_preferences: NotificationPreference[];
+  reminder_rules: ReminderRule[];
   session_user_id: string | null;
 }
 
@@ -94,6 +101,9 @@ function emptyStore(): DemoStore {
     caregiver_profiles: [],
     caregiver_shifts: [],
     caregiver_activity: [],
+    notifications: [],
+    notification_preferences: [],
+    reminder_rules: [],
     session_user_id: null,
   };
 }
@@ -105,7 +115,7 @@ function readStore(): DemoStore {
   try {
     const parsed = JSON.parse(raw) as Partial<DemoStore>;
     // Version 1 data is migrated in place (new arrays default to []). Any other version is unknown, so start clean.
-    if (![1, 2, 3, DEMO_STORE_VERSION].includes(parsed.version ?? -1)) return emptyStore();
+    if (![1, 2, 3, 4, DEMO_STORE_VERSION].includes(parsed.version ?? -1)) return emptyStore();
     return {
       version: DEMO_STORE_VERSION,
       users: parsed.users ?? [],
@@ -122,6 +132,9 @@ function readStore(): DemoStore {
       caregiver_profiles: parsed.caregiver_profiles ?? [],
       caregiver_shifts: parsed.caregiver_shifts ?? [],
       caregiver_activity: parsed.caregiver_activity ?? [],
+      notifications: parsed.notifications ?? [],
+      notification_preferences: parsed.notification_preferences ?? [],
+      reminder_rules: parsed.reminder_rules ?? [],
       session_user_id: parsed.session_user_id ?? null,
     };
   } catch {
@@ -1461,3 +1474,153 @@ export function listAssignedElders(userId: string): ElderProfile[] {
   );
   return store.elder_profiles.filter((e) => assignedFamilyIds.has(e.family_id));
 }
+
+// ---- Notifications, reminder rules (Phase 5) ----
+// Demo mode only. A missed check-in is never treated as a medical emergency.
+
+/**
+ * Creates an in-app notification. Returns the existing one if (user, dedupe key) already exists,
+ * and null if the user has turned this event type off.
+ */
+export function createNotification({
+  familyId,
+  userId,
+  eventType,
+  title,
+  message,
+  dedupeKey,
+}: {
+  familyId: string;
+  userId: string;
+  eventType: string;
+  title: string;
+  message: string;
+  dedupeKey: string;
+}): Notification | null {
+  const store = readStore();
+  const existing = store.notifications.find((n) => n.user_id === userId && n.dedupe_key === dedupeKey);
+  if (existing) {
+    return existing;
+  }
+  const preference = store.notification_preferences.find(
+    (p) => p.user_id === userId && p.event_type === eventType,
+  );
+  if (preference && preference.enabled === false) {
+    return null;
+  }
+
+  const notification: Notification = {
+    id: crypto.randomUUID(),
+    family_id: familyId,
+    user_id: userId,
+    event_type: eventType,
+    title,
+    message,
+    dedupe_key: dedupeKey,
+    channel: "in_app",
+    delivery_status: "delivered",
+    read_at: null,
+    created_at: new Date().toISOString(),
+  };
+  store.notifications.push(notification);
+  writeStore(store);
+  return notification;
+}
+
+/** Newest first. */
+export function listNotifications(userId: string): Notification[] {
+  const store = readStore();
+  return store.notifications
+    .filter((n) => n.user_id === userId)
+    .sort((a, b) => b.created_at.localeCompare(a.created_at));
+}
+
+export function markNotificationRead(notificationId: string, userId: string): Notification {
+  const store = readStore();
+  const notification = store.notifications.find((n) => n.id === notificationId);
+  if (!notification || notification.user_id !== userId) {
+    throw new Error("Notification not found.");
+  }
+  notification.read_at = new Date().toISOString();
+  writeStore(store);
+  return notification;
+}
+
+/** Turns one event type on or off for a user. Creates the preference row if it does not exist. */
+export function setNotificationPreference(
+  userId: string,
+  eventType: string,
+  enabled: boolean,
+): NotificationPreference {
+  const store = readStore();
+  let preference = store.notification_preferences.find(
+    (p) => p.user_id === userId && p.event_type === eventType,
+  );
+  if (preference) {
+    preference.enabled = enabled;
+  } else {
+    preference = { id: crypto.randomUUID(), user_id: userId, event_type: eventType, enabled };
+    store.notification_preferences.push(preference);
+  }
+  writeStore(store);
+  return preference;
+}
+
+export function listNotificationPreferences(userId: string): NotificationPreference[] {
+  const store = readStore();
+  return store.notification_preferences.filter((p) => p.user_id === userId);
+}
+
+export function listReminderRules(familyId: string): ReminderRule[] {
+  const store = readStore();
+  return store.reminder_rules.filter((r) => r.family_id === familyId);
+}
+
+/** Owner only. Creates or updates the rule for (family, kind). */
+export function upsertReminderRule({
+  familyId,
+  actorId,
+  kind,
+  minutesBeforeOrAfter,
+  escalateToUserId,
+  enabled,
+}: {
+  familyId: string;
+  actorId: string;
+  kind: ReminderKind;
+  minutesBeforeOrAfter: number;
+  escalateToUserId: string | null;
+  enabled: boolean;
+}): ReminderRule {
+  const store = readStore();
+  requireFamilyOwner(store, familyId, actorId, "Only the family owner can change reminder rules.");
+
+  let rule = store.reminder_rules.find((r) => r.family_id === familyId && r.kind === kind);
+  if (rule) {
+    rule.minutes_before_or_after = minutesBeforeOrAfter;
+    rule.escalate_to_user_id = escalateToUserId;
+    rule.enabled = enabled;
+  } else {
+    rule = {
+      id: crypto.randomUUID(),
+      family_id: familyId,
+      kind,
+      minutes_before_or_after: minutesBeforeOrAfter,
+      escalate_to_user_id: escalateToUserId,
+      enabled,
+    };
+    store.reminder_rules.push(rule);
+  }
+  writeStore(store);
+
+  addActivity({
+    familyId,
+    actorId,
+    action: "reminder_rule.updated",
+    entityType: "reminder_rule",
+    entityId: rule.id,
+    message: `Updated the ${kind} reminder rule.`,
+  });
+  return rule;
+}
+
