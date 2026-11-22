@@ -2166,4 +2166,112 @@ export function recordElderMedicineConfirmation({
   return recordParentConfirmation({ medicationId, familyId, scheduledAt, actorId, status });
 }
 
+// ---- Synthetic demo family (demo mode only) ----
+
+const SYNTHETIC_NOTE = "Synthetic demo record. Not real patient data.";
+
+/** Local calendar date as YYYY-MM-DD, offset by whole days from base. */
+function localDateString(base: Date, dayOffset: number): string {
+  const d = new Date(base.getFullYear(), base.getMonth(), base.getDate() + dayOffset);
+  const pad = (n: number): string => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** Local date and time as ISO, offset by whole days from base. */
+function localDateTimeIso(base: Date, dayOffset: number, hours: number, minutes: number): string {
+  return new Date(base.getFullYear(), base.getMonth(), base.getDate() + dayOffset, hours, minutes).toISOString();
+}
+
+/**
+ * Demo mode only. Creates synthetic records for demonstration. Never contains real patient data.
+ */
+export function loadSyntheticSharmaFamily(ownerUserId: string): Family {
+  const existing = readStore();
+  if (existing.family_members.some((m) => m.user_id === ownerUserId && m.status === "active")) {
+    throw new Error("This user already has a family in demo mode.");
+  }
+
+  // Reuses createFamily, so the owner membership and elder profile are written the same way as a real family.
+  const family = createFamily({
+    userId: ownerUserId,
+    familyName: "Sharma Family (synthetic demo data)",
+    elderName: "Rajesh Sharma (synthetic demo)",
+  });
+  const elder = getElderForFamily(family.id);
+  if (!elder) {
+    throw new Error("Demo elder profile was not created.");
+  }
+
+  const now = new Date();
+  const familyId = family.id;
+  const elderId = elder.id;
+  const actorId = ownerUserId;
+
+  const medicineA = createMedication({
+    familyId,
+    elderId,
+    actorId,
+    name: "Demo medicine A",
+    instructions: "Take as the prescriber directed (demo text).",
+    frequency: "Twice daily (demo)",
+    scheduledTimes: ["08:00", "20:00"],
+    startDate: localDateString(now, -7),
+    endDate: null,
+    notes: SYNTHETIC_NOTE,
+  });
+  createMedication({
+    familyId,
+    elderId,
+    actorId,
+    name: "Demo medicine B",
+    instructions: "Take as the prescriber directed (demo text).",
+    frequency: "Once daily (demo)",
+    scheduledTimes: ["13:00"],
+    startDate: localDateString(now, -3),
+    endDate: localDateString(now, 30),
+    notes: SYNTHETIC_NOTE,
+  });
+
+  createAppointment({
+    familyId,
+    elderId,
+    actorId,
+    title: "Demo clinic follow-up (synthetic)",
+    provider: "Demo clinic",
+    location: "Demo location",
+    scheduledAt: localDateTimeIso(now, 3, 10, 0),
+    notes: SYNTHETIC_NOTE,
+  });
+
+  createTask({
+    familyId,
+    elderId,
+    actorId,
+    title: "Demo: refill check (synthetic)",
+    description: SYNTHETIC_NOTE,
+    category: "medication",
+    dueAt: localDateTimeIso(now, -1, 18, 0),
+  });
+  createTask({
+    familyId,
+    elderId,
+    actorId,
+    title: "Demo: book transport (synthetic)",
+    description: SYNTHETIC_NOTE,
+    category: "appointment",
+    dueAt: localDateTimeIso(now, 2, 12, 0),
+  });
+
+  // Only the parent confirmation is recorded. The 20:00 dose stays unconfirmed, and no caregiver entry is made.
+  recordParentConfirmation({
+    medicationId: medicineA.id,
+    familyId,
+    scheduledAt: localDateTimeIso(now, 0, 8, 0),
+    actorId,
+    status: "taken",
+  });
+
+  return family;
+}
+
 

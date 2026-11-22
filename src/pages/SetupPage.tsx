@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "../features/auth/AuthContext";
+import { loadSyntheticSharmaFamily } from "../lib/demoStore";
 import { homeForRole } from "../routes/homeForRole";
 
 const setupSchema = z.object({
@@ -18,11 +19,14 @@ const inputClass =
 const buttonClass =
   "inline-flex min-h-12 w-full items-center justify-center rounded-lg bg-forest px-6 text-lg font-semibold text-ivory hover:bg-charcoal focus:outline-none focus:ring-2 focus:ring-coral disabled:cursor-not-allowed disabled:opacity-60";
 const fieldErrorClass = "mt-2 text-base font-semibold text-charcoal";
+const secondaryButtonClass =
+  "inline-flex min-h-12 w-full items-center justify-center rounded-lg border-2 border-forest bg-white px-6 text-lg font-semibold text-forest hover:bg-sage focus:outline-none focus:ring-2 focus:ring-coral disabled:cursor-not-allowed disabled:opacity-60";
 
 export default function SetupPage() {
-  const { membership, loading, isDemo, createFamily } = useAuth();
+  const { user, membership, loading, isDemo, createFamily, refresh } = useAuth();
   const navigate = useNavigate();
   const [formError, setFormError] = useState<string | null>(null);
+  const [demoError, setDemoError] = useState<string | null>(null);
 
   const {
     register,
@@ -37,6 +41,18 @@ export default function SetupPage() {
   if (!loading && membership) {
     return <Navigate to={homeForRole(membership.role)} replace />;
   }
+
+  const onLoadSyntheticDemo = async () => {
+    if (!user) return;
+    setDemoError(null);
+    try {
+      loadSyntheticSharmaFamily(user.id);
+      await refresh();
+      navigate(homeForRole("owner"), { replace: true });
+    } catch (err) {
+      setDemoError(err instanceof Error ? err.message : "Could not load the demo family. Please try again.");
+    }
+  };
 
   const onSubmit = async (values: SetupValues) => {
     setFormError(null);
@@ -110,6 +126,22 @@ export default function SetupPage() {
             {isSubmitting ? "Creating family…" : "Create family"}
           </button>
         </form>
+
+        {isDemo && user && !membership && (
+          <div className="mt-8 space-y-3 border-t border-sage pt-6">
+            <p className="text-base">
+              Creates a fictional family and records so you can explore the app. Not real patient data.
+            </p>
+            {demoError && (
+              <div role="alert" className="rounded-lg border-2 border-coral bg-white p-4 text-lg font-semibold">
+                {demoError}
+              </div>
+            )}
+            <button type="button" onClick={onLoadSyntheticDemo} className={secondaryButtonClass}>
+              Load synthetic Sharma demo family
+            </button>
+          </div>
+        )}
       </div>
     </main>
   );
