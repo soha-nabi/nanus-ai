@@ -5,7 +5,11 @@ import type {
   CareTask,
   CareTaskCategory,
   CareTaskPriority,
+  CaregiverActivityLog,
+  CaregiverActivityType,
   CaregiverAssistance,
+  CaregiverProfile,
+  CaregiverShift,
   DocumentRecord,
   DocumentType,
   ElderProfile,
@@ -17,6 +21,7 @@ import type {
   ParentConfirmation,
   Profile,
   Role,
+  VerificationStatus,
 } from "./types";
 
 // DEMO MODE ONLY. Passwords in this store are kept in plain text in this browser's
@@ -26,7 +31,7 @@ import type {
 // Medication, appointment and document data is also stored unencrypted in this browser's
 // localStorage in demo mode. Do not enter real health information into demo mode.
 
-export const DEMO_STORE_VERSION = 3;
+export const DEMO_STORE_VERSION = 4;
 const STORAGE_KEY = "nanus-demo-v1";
 const MIN_PASSWORD_LENGTH = 6;
 const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -55,6 +60,9 @@ interface DemoStore {
   medication_events: MedicationEvent[];
   appointments: Appointment[];
   document_records: DocumentRecord[];
+  caregiver_profiles: CaregiverProfile[];
+  caregiver_shifts: CaregiverShift[];
+  caregiver_activity: CaregiverActivityLog[];
   session_user_id: string | null;
 }
 
@@ -83,6 +91,9 @@ function emptyStore(): DemoStore {
     medication_events: [],
     appointments: [],
     document_records: [],
+    caregiver_profiles: [],
+    caregiver_shifts: [],
+    caregiver_activity: [],
     session_user_id: null,
   };
 }
@@ -94,7 +105,7 @@ function readStore(): DemoStore {
   try {
     const parsed = JSON.parse(raw) as Partial<DemoStore>;
     // Version 1 data is migrated in place (new arrays default to []). Any other version is unknown, so start clean.
-    if (parsed.version !== 1 && parsed.version !== 2 && parsed.version !== DEMO_STORE_VERSION) return emptyStore();
+    if (![1, 2, 3, DEMO_STORE_VERSION].includes(parsed.version ?? -1)) return emptyStore();
     return {
       version: DEMO_STORE_VERSION,
       users: parsed.users ?? [],
@@ -108,6 +119,9 @@ function readStore(): DemoStore {
       medication_events: parsed.medication_events ?? [],
       appointments: parsed.appointments ?? [],
       document_records: parsed.document_records ?? [],
+      caregiver_profiles: parsed.caregiver_profiles ?? [],
+      caregiver_shifts: parsed.caregiver_shifts ?? [],
+      caregiver_activity: parsed.caregiver_activity ?? [],
       session_user_id: parsed.session_user_id ?? null,
     };
   } catch {
@@ -991,4 +1005,459 @@ export function createDocumentRecord({
 export function listDocumentRecords(familyId: string): DocumentRecord[] {
   const store = readStore();
   return store.document_records.filter((d) => d.family_id === familyId).reverse();
+}
+
+// ---- Caregivers (Phase 4) ----
+// DEMO MODE ONLY. Verification statuses are set by the family owner in this browser.
+// Real identity and background checks require an authorised external verification process
+// and must not be marked verified in code paths without one.
+
+const CAREGIVER_PHONE_MIN_DIGITS = 7;
+
+function isFamilyOwner(store: DemoStore, familyId: string, userId: string): boolean {
+  return store.family_members.some(
+    (m) => m.family_id === familyId && m.user_id === userId && m.role === "owner" && m.status === "active",
+  );
+}
+
+function requireFamilyOwner(store: DemoStore, familyId: string, userId: string, message: string): void {
+  if (!isFamilyOwner(store, familyId, userId)) {
+    throw new Error(message);
+  }
+}
+
+function requireShift(store: DemoStore, shiftId: string): CaregiverShift {
+  const shift = store.caregiver_shifts.find((s) => s.id === shiftId);
+  if (!shift) {
+    throw new Error("Shift not found.");
+  }
+  return shift;
+}
+
+function requireAssignedShift(store: DemoStore, shiftId: string, actorId: string): CaregiverShift {
+  const shift = requireShift(store, shiftId);
+  if (shift.caregiver_user_id !== actorId) {
+    throw new Error("This shift is not assigned to you.");
+  }
+  return shift;
+}
+
+/** Appends a caregiver activity entry to the store. The caller is responsible for writeStore. */
+function appendCaregiverActivity(
+  store: DemoStore,
+  entry: {
+    familyId: string;
+    caregiverUserId: string;
+    taskId: string | null;
+    activityType: CaregiverActivityType;
+    description: string;
+    evidenceName: string | null;
+  },
+): CaregiverActivityLog {
+  const log: CaregiverActivityLog = {
+    id: crypto.randomUUID(),
+    family_id: entry.familyId,
+    caregiver_user_id: entry.caregiverUserId,
+    task_id: entry.taskId,
+    activity_type: entry.activityType,
+    description: entry.description,
+    evidence_name: entry.evidenceName,
+    disputed: false,
+    created_at: new Date().toISOString(),
+  };
+  store.caregiver_activity.push(log);
+  return log;
+}
+
+// ---- Caregiver profiles ----
+
+export function getCaregiverProfile(familyId: string, userId: string): CaregiverProfile | null {
+  const store = readStore();
+  return store.caregiver_profiles.find((p) => p.family_id === familyId && p.user_id === userId) ?? null;
+}
+
+/** Creates or updates a caregiver profile. Never changes verification statuses or family_approval. */
+export function upsertCaregiverProfile({
+  familyId,
+  userId,
+  experience = null,
+  qualifications = null,
+  contactPhone = null,
+  emergencyContact = null,
+}: {
+  familyId: string;
+  userId: string;
+  experience?: string | null;
+  qualifications?: string | null;
+  contactPhone?: string | null;
+  emergencyContact?: string | null;
+}): CaregiverProfile {
+  const cleanPhone = textOrNull(contactPhone);
+  if (cleanPhone !== null && cleanPhone.replace(/\D/g, "").length < CAREGIVER_PHONE_MIN_DIGITS) {
+    throw new Error("Enter a valid phone number.");
+  }
+
+  const store = readStore();
+  const now = new Date().toISOString();
+  let profile = store.caregiver_profiles.find((p) => p.family_id === familyId && p.user_id === userId);
+  if (!profile) {
+    profile = {
+      id: crypto.randomUUID(),
+      user_id: userId,
+      family_id: familyId,
+      experience: null,
+      qualifications: null,
+      contact_phone: null,
+      emergency_contact: null,
+      identity_status: "not_submitted",
+      reference_status: "not_submitted",
+      background_status: "not_submitted",
+      family_approval: "pending",
+      created_at: now,
+      updated_at: now,
+    };
+    store.caregiver_profiles.push(profile);
+  }
+  profile.experience = textOrNull(experience);
+  profile.qualifications = textOrNull(qualifications);
+  profile.contact_phone = cleanPhone;
+  profile.emergency_contact = textOrNull(emergencyContact);
+  profile.updated_at = now;
+  writeStore(store);
+
+  addActivity({
+    familyId,
+    actorId: userId,
+    action: "caregiver.profile_updated",
+    entityType: "caregiver_profile",
+    entityId: profile.id,
+    message: "Updated the caregiver profile.",
+  });
+  return profile;
+}
+
+const VERIFICATION_FIELD = {
+  identity: "identity_status",
+  reference: "reference_status",
+  background: "background_status",
+} as const;
+
+/**
+ * DEMO MODE ONLY. Real identity and background checks require an authorised external
+ * verification process and must not be marked verified in code paths without one.
+ */
+export function setVerificationStatus({
+  familyId,
+  caregiverUserId,
+  actorId,
+  kind,
+  status,
+}: {
+  familyId: string;
+  caregiverUserId: string;
+  actorId: string;
+  kind: "identity" | "reference" | "background";
+  status: VerificationStatus;
+}): CaregiverProfile {
+  const store = readStore();
+  requireFamilyOwner(store, familyId, actorId, "Only the family owner can change verification status.");
+  const profile = store.caregiver_profiles.find((p) => p.family_id === familyId && p.user_id === caregiverUserId);
+  if (!profile) {
+    throw new Error("Caregiver profile not found.");
+  }
+  profile[VERIFICATION_FIELD[kind]] = status;
+  profile.updated_at = new Date().toISOString();
+  writeStore(store);
+
+  addActivity({
+    familyId,
+    actorId,
+    action: "caregiver.verification_updated",
+    entityType: "caregiver_profile",
+    entityId: profile.id,
+    message: `Set the ${kind} check to ${status.replace("_", " ")}.`,
+  });
+  return profile;
+}
+
+export function setFamilyApproval({
+  familyId,
+  caregiverUserId,
+  actorId,
+  decision,
+}: {
+  familyId: string;
+  caregiverUserId: string;
+  actorId: string;
+  decision: "approved" | "declined";
+}): CaregiverProfile {
+  const store = readStore();
+  requireFamilyOwner(store, familyId, actorId, "Only the family owner can approve or decline a caregiver.");
+  const profile = store.caregiver_profiles.find((p) => p.family_id === familyId && p.user_id === caregiverUserId);
+  if (!profile) {
+    throw new Error("Caregiver profile not found.");
+  }
+  profile.family_approval = decision;
+  profile.updated_at = new Date().toISOString();
+  writeStore(store);
+
+  addActivity({
+    familyId,
+    actorId,
+    action: "caregiver.approval_updated",
+    entityType: "caregiver_profile",
+    entityId: profile.id,
+    message: `Marked the caregiver as ${decision}.`,
+  });
+  return profile;
+}
+
+export function listCaregiverProfiles(familyId: string): CaregiverProfile[] {
+  const store = readStore();
+  return store.caregiver_profiles.filter((p) => p.family_id === familyId);
+}
+
+// ---- Shifts ----
+
+/** Owner-only. Creates a shift with status "scheduled". */
+export function createShift({
+  familyId,
+  elderId,
+  caregiverUserId,
+  actorId,
+  scheduledStart,
+  scheduledEnd,
+}: {
+  familyId: string;
+  elderId: string;
+  caregiverUserId: string;
+  actorId: string;
+  scheduledStart: string;
+  scheduledEnd: string;
+}): CaregiverShift {
+  const store = readStore();
+  requireFamilyOwner(store, familyId, actorId, "Only the family owner can schedule shifts.");
+
+  const startIso = toIsoOrNull(scheduledStart);
+  const endIso = toIsoOrNull(scheduledEnd);
+  if (!startIso || !endIso) {
+    throw new Error("Enter valid start and end times.");
+  }
+  if (Date.parse(endIso) <= Date.parse(startIso)) {
+    throw new Error("Shift must end after it starts.");
+  }
+
+  const shift: CaregiverShift = {
+    id: crypto.randomUUID(),
+    family_id: familyId,
+    elder_id: elderId,
+    caregiver_user_id: caregiverUserId,
+    scheduled_start: startIso,
+    scheduled_end: endIso,
+    check_in_at: null,
+    check_out_at: null,
+    status: "scheduled",
+    shift_notes: null,
+    created_by: actorId,
+    created_at: new Date().toISOString(),
+  };
+  store.caregiver_shifts.push(shift);
+  writeStore(store);
+
+  addActivity({
+    familyId,
+    actorId,
+    action: "caregiver.shift_created",
+    entityType: "caregiver_shift",
+    entityId: shift.id,
+    message: "Scheduled a caregiver shift.",
+  });
+  return shift;
+}
+
+/** Lists a family's shifts by scheduled start (earliest first). */
+export function listShifts(familyId: string): CaregiverShift[] {
+  const store = readStore();
+  return store.caregiver_shifts
+    .filter((s) => s.family_id === familyId)
+    .sort((a, b) => Date.parse(a.scheduled_start) - Date.parse(b.scheduled_start));
+}
+
+/** Only the assigned caregiver may check in. Check-in time is not treated as proof of care. */
+export function checkInShift(shiftId: string, actorId: string): CaregiverShift {
+  const store = readStore();
+  const shift = requireAssignedShift(store, shiftId, actorId);
+  if (shift.check_in_at !== null || shift.status === "checked_in") {
+    throw new Error("This shift is already checked in.");
+  }
+  if (shift.status !== "scheduled") {
+    throw new Error("This shift can no longer be checked in.");
+  }
+
+  shift.check_in_at = new Date().toISOString();
+  shift.status = "checked_in";
+  appendCaregiverActivity(store, {
+    familyId: shift.family_id,
+    caregiverUserId: actorId,
+    taskId: null,
+    activityType: "check_in",
+    description: "Checked in to shift.",
+    evidenceName: null,
+  });
+  writeStore(store);
+  return shift;
+}
+
+/** Only the assigned caregiver may check out, and only after checking in. */
+export function checkOutShift(shiftId: string, actorId: string, shiftNotes: string): CaregiverShift {
+  const store = readStore();
+  const shift = requireAssignedShift(store, shiftId, actorId);
+  if (shift.check_in_at === null) {
+    throw new Error("Check in before checking out.");
+  }
+  if (shift.status !== "checked_in") {
+    throw new Error("This shift is already checked out.");
+  }
+
+  shift.check_out_at = new Date().toISOString();
+  shift.status = "completed";
+  shift.shift_notes = textOrNull(shiftNotes);
+  appendCaregiverActivity(store, {
+    familyId: shift.family_id,
+    caregiverUserId: actorId,
+    taskId: null,
+    activityType: "check_out",
+    description: "Checked out of shift.",
+    evidenceName: null,
+  });
+  writeStore(store);
+  return shift;
+}
+
+/** Owner-only. Never runs automatically on read. */
+export function markShiftMissed(shiftId: string, actorId: string): CaregiverShift {
+  const store = readStore();
+  const shift = requireShift(store, shiftId);
+  requireFamilyOwner(store, shift.family_id, actorId, "Only the family owner can mark a shift missed.");
+  if (shift.status !== "scheduled" || Date.parse(shift.scheduled_end) >= Date.now()) {
+    throw new Error("Only a scheduled shift that has ended can be marked missed.");
+  }
+
+  shift.status = "missed";
+  writeStore(store);
+
+  addActivity({
+    familyId: shift.family_id,
+    actorId,
+    action: "caregiver.shift_missed",
+    entityType: "caregiver_shift",
+    entityId: shift.id,
+    message: "Marked a caregiver shift as missed.",
+  });
+  return shift;
+}
+
+/** Shifts across all families for one caregiver, earliest first. */
+export function listShiftsForCaregiver(userId: string): CaregiverShift[] {
+  const store = readStore();
+  return store.caregiver_shifts
+    .filter((s) => s.caregiver_user_id === userId)
+    .sort((a, b) => Date.parse(a.scheduled_start) - Date.parse(b.scheduled_start));
+}
+
+// ---- Caregiver activity ----
+
+/** Only the caregiver can write their own activity. Never sets disputed. */
+export function addCaregiverActivity({
+  familyId,
+  caregiverUserId,
+  actorId,
+  taskId = null,
+  activityType,
+  description,
+  evidenceName = null,
+}: {
+  familyId: string;
+  caregiverUserId: string;
+  actorId: string;
+  taskId?: string | null;
+  activityType: CaregiverActivityType;
+  description: string;
+  evidenceName?: string | null;
+}): CaregiverActivityLog {
+  if (actorId !== caregiverUserId) {
+    throw new Error("Only the caregiver can record their own activity.");
+  }
+  const cleanDescription = description.trim();
+  if (!cleanDescription) {
+    throw new Error("Describe the activity.");
+  }
+
+  const store = readStore();
+  const log = appendCaregiverActivity(store, {
+    familyId,
+    caregiverUserId,
+    taskId: taskId || null,
+    activityType,
+    description: cleanDescription,
+    evidenceName: textOrNull(evidenceName),
+  });
+  writeStore(store);
+  return log;
+}
+
+/** Only a family owner or family member may mark an activity as disputed. */
+export function setActivityDisputed(activityId: string, actorId: string, disputed: boolean): CaregiverActivityLog {
+  const store = readStore();
+  const log = store.caregiver_activity.find((a) => a.id === activityId);
+  if (!log) {
+    throw new Error("Activity not found.");
+  }
+  const canDispute = store.family_members.some(
+    (m) =>
+      m.family_id === log.family_id &&
+      m.user_id === actorId &&
+      m.status === "active" &&
+      (m.role === "owner" || m.role === "family_member"),
+  );
+  if (!canDispute) {
+    throw new Error("Only a family owner or family member can dispute an activity.");
+  }
+
+  log.disputed = disputed;
+  writeStore(store);
+  return log;
+}
+
+/** Newest first. Stored in insertion order, so reversing gives exact recency. */
+export function listCaregiverActivity(familyId: string): CaregiverActivityLog[] {
+  const store = readStore();
+  return store.caregiver_activity.filter((a) => a.family_id === familyId).reverse();
+}
+
+// ---- Caregiver access to elders ----
+
+/**
+ * Elders the caregiver may see: only families where the caregiver's profile is approved
+ * AND they hold an active "caregiver" membership. Both are required.
+ */
+export function listAssignedElders(userId: string): ElderProfile[] {
+  const store = readStore();
+  const approvedFamilyIds = new Set(
+    store.caregiver_profiles
+      .filter((p) => p.user_id === userId && p.family_approval === "approved")
+      .map((p) => p.family_id),
+  );
+  const assignedFamilyIds = new Set(
+    store.family_members
+      .filter(
+        (m) =>
+          m.user_id === userId &&
+          m.role === "caregiver" &&
+          m.status === "active" &&
+          approvedFamilyIds.has(m.family_id),
+      )
+      .map((m) => m.family_id),
+  );
+  return store.elder_profiles.filter((e) => assignedFamilyIds.has(e.family_id));
 }

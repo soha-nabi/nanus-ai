@@ -15,6 +15,12 @@ import FamilyDashboardPage from "./pages/FamilyDashboardPage";
 import MedicationPage from "./pages/MedicationPage";
 import AppointmentsPage from "./pages/AppointmentsPage";
 import DocumentVaultPage from "./pages/DocumentVaultPage";
+import CaregiverManagementPage from "./pages/CaregiverManagementPage";
+import CaregiverDashboardPage from "./pages/caregiver/CaregiverDashboardPage";
+import CaregiverShiftsPage from "./pages/caregiver/CaregiverShiftsPage";
+import CaregiverTasksPage from "./pages/caregiver/CaregiverTasksPage";
+import CaregiverActivityPage from "./pages/caregiver/CaregiverActivityPage";
+import CaregiverProfilePage from "./pages/caregiver/CaregiverProfilePage";
 import RequireAuth from "./routes/RequireAuth";
 
 export default function App() {
@@ -43,18 +49,15 @@ export default function App() {
         <Route path="/app/family/medication" element={<MedicationPage />} />
         <Route path="/app/family/appointments" element={<AppointmentsPage />} />
         <Route path="/app/family/documents" element={<DocumentVaultPage />} />
+        <Route path="/app/family/caregivers" element={<CaregiverManagementPage />} />
       </Route>
 
       <Route element={<RequireAuth roles={["caregiver"]} />}>
-        <Route
-          path="/app/caregiver"
-          element={
-            <AreaPlaceholder
-              title="Caregiver area"
-              description="Appointed caregivers will see their assignments and shifts here."
-            />
-          }
-        />
+        <Route path="/app/caregiver" element={<CaregiverDashboardPage />} />
+        <Route path="/app/caregiver/shifts" element={<CaregiverShiftsPage />} />
+        <Route path="/app/caregiver/tasks" element={<CaregiverTasksPage />} />
+        <Route path="/app/caregiver/activity" element={<CaregiverActivityPage />} />
+        <Route path="/app/caregiver/profile" element={<CaregiverProfilePage />} />
       </Route>
 
       <Route element={<RequireAuth roles={["elder"]} />}>

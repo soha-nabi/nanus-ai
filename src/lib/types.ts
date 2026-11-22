@@ -159,3 +159,63 @@ export interface DocumentRecord {
   created_at: string;
 }
 
+// ---- Phase 4: caregiver profiles, verification, shifts, activity ----
+
+export type VerificationStatus = "not_submitted" | "submitted" | "pending_review" | "verified" | "rejected" | "expired";
+
+/** One caregiver's profile within one family. Verification statuses are set by the family owner (demo only). */
+export interface CaregiverProfile {
+  id: string;
+  user_id: string;
+  family_id: string;
+  experience: string | null;
+  qualifications: string | null;
+  contact_phone: string | null;
+  emergency_contact: string | null;
+  identity_status: VerificationStatus;
+  reference_status: VerificationStatus;
+  background_status: VerificationStatus;
+  family_approval: "pending" | "approved" | "declined";
+  created_at: string;
+  updated_at: string;
+}
+
+export type CaregiverShiftStatus = "scheduled" | "checked_in" | "completed" | "missed";
+
+export interface CaregiverShift {
+  id: string;
+  family_id: string;
+  elder_id: string;
+  caregiver_user_id: string;
+  scheduled_start: string; // ISO
+  scheduled_end: string; // ISO
+  check_in_at: string | null; // ISO
+  check_out_at: string | null; // ISO
+  status: CaregiverShiftStatus;
+  shift_notes: string | null;
+  created_by: string;
+  created_at: string;
+}
+
+export type CaregiverActivityType =
+  | "task_completed"
+  | "medication_assistance"
+  | "check_in"
+  | "check_out"
+  | "report"
+  | "handover";
+
+/** A caregiver's own record of work. Check-in time alone is not treated as proof of care. */
+export interface CaregiverActivityLog {
+  id: string;
+  family_id: string;
+  caregiver_user_id: string;
+  task_id: string | null;
+  activity_type: CaregiverActivityType;
+  description: string;
+  evidence_name: string | null;
+  disputed: boolean;
+  created_at: string;
+}
+
+
